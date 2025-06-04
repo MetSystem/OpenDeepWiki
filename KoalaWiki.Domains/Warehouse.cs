@@ -1,4 +1,6 @@
-﻿namespace KoalaWiki.Entities;
+﻿using KoalaWiki.Domains;
+
+namespace KoalaWiki.Entities;
 
 public class Warehouse : Entity<string>
 {
@@ -42,12 +44,12 @@ public class Warehouse : Entity<string>
     /// <summary>
     /// 仓库类型
     /// </summary>
-    public string Type { get; set; }
+    public string? Type { get; set; }
 
     /// <summary>
     /// 仓库分支
     /// </summary>
-    public string Branch { get; set; }
+    public string? Branch { get; set; }
 
     /// <summary>
     /// 仓库状态
@@ -57,30 +59,42 @@ public class Warehouse : Entity<string>
     /// <summary>
     /// 错误信息
     /// </summary>
-    public string Error { get; set; }
+    public string? Error { get; set; }
 
     /// <summary>
     /// 构建提示词
     /// </summary>
-    public string Prompt { get; set; }
+    public string? Prompt { get; set; }
 
     /// <summary>
     /// 仓库版本
     /// </summary>
-    public string Version { get; set; }
+    public string? Version { get; set; }
+    
+    /// <summary>
+    /// 是否嵌入完成
+    /// </summary>
+    public bool IsEmbedded { get; set; }
+    
+    /// <summary>
+    /// 是否推荐
+    /// </summary>
+    /// <returns></returns>
+    public bool IsRecommended { get; set; }
 
     /// <summary>
-    /// 使用模型
+    /// 优化过的代码目录结构
     /// </summary>
-    public string Model { get; set; } = string.Empty;
-
+    /// <returns></returns>
+    public string? OptimizedDirectoryStructure { get; set; }
+    
     /// <summary>
-    /// OpenAI 密钥
+    /// 当前仓库的文档（默认使用仓库，如果没有则动态生成）
     /// </summary>
-    public string OpenAIKey { get; set; } = string.Empty;
-
+    public string? Readme { get; set; } 
+    
     /// <summary>
-    /// OpenAI 端点
+    /// 仓库类别
     /// </summary>
-    public string OpenAIEndpoint { get; set; } = string.Empty;
+    public ClassifyType? Classify { get; set; }
 }

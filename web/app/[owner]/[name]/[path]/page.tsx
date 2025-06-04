@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { Row, Col,  theme } from 'antd';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import 'katex/dist/katex.min.css';
 
 // 导入封装好的组件
@@ -24,14 +24,15 @@ const { useToken } = theme;
 
 export default function DocumentPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const { owner, name, path } = params;
+  const branch = searchParams.get('branch');
   const [document, setDocument] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [headings, setHeadings] = useState<{key: string, title: string, level: number, id: string}[]>([]);
   const { token } = useToken();
 
-  
   // 生成目录锚点项
   const anchorItems = useMemo(() => {
     return createAnchorItems(headings);
@@ -48,7 +49,8 @@ export default function DocumentPage() {
     const fetchDocument = async () => {
       try {
         setLoading(true);
-        const response = await documentById(owner as string, name as string, path as string);
+        const response = await documentById(owner as string, name as string, path as string, branch || undefined);
+        console.log(response, owner, name, path, branch);
         if (response.isSuccess && response.data) {
           setDocument(response.data);
           // 提取标题作为目录
@@ -67,11 +69,11 @@ export default function DocumentPage() {
     };
 
     fetchDocument();
-  }, [owner, name, path]);
+  }, [owner, name, path, branch]);
 
   // 渲染页面主体
   return (
-    <div className="doc-page-container" style={{ backgroundColor: token.colorBgLayout, minHeight: '100vh' }}>
+    <main className="doc-page-container" style={{ backgroundColor: token.colorBgLayout, minHeight: '100vh' }}>
       <Row 
         style={{ 
           padding: { xs: '8px', sm: '16px', md: '24px' }[token.screenSM],
@@ -99,6 +101,7 @@ export default function DocumentPage() {
                 <SourceFiles
                   fileSource={document.fileSource}
                   owner={owner as string}
+                  branch={document.branch}
                   git={document.address}
                   name={name as string}
                   token={token}
@@ -108,21 +111,23 @@ export default function DocumentPage() {
             
             {/* 主要内容区 */}
             <Col xs={24} sm={24} md={18} lg={18} xl={18}>
-              <DocumentContent
-                document={document}
-                owner={owner as string}
-                name={name as string}
-                token={token}
-              />
+              <section itemProp="articleBody">
+                <DocumentContent
+                  document={document}
+                  owner={owner as string}
+                  name={name as string}
+                  token={token}
+                />
+              </section>
             </Col>
             
-            {/* 侧边栏：目录和更多信息 */}
             <Col xs={0} sm={0} md={6} lg={6} xl={6}>
-              <DocumentSidebar
-                anchorItems={anchorItems}
-                token={token}
-                document={document}
-              />
+              <nav aria-label="文档目录">
+                <DocumentSidebar
+                  anchorItems={anchorItems}
+                  documentData={document}
+                />
+              </nav>
             </Col>
           </>
         )}
@@ -138,6 +143,6 @@ export default function DocumentPage() {
       
       {/* 全局样式 */}
       <DocumentStyles token={token} />
-    </div>
+    </main>
   );
 }

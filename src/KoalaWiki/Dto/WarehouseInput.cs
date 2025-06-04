@@ -7,21 +7,12 @@ public class WarehouseInput
     /// </summary>
     /// <returns></returns>
     public string Address { get; set; }
-
+    
     /// <summary>
-    /// 使用模型
+    /// 分支
     /// </summary>
-    public string Model { get; set; } = string.Empty;
-
-    /// <summary>
-    /// OpenAI 密钥
-    /// </summary>
-    public string OpenAIKey { get; set; } = string.Empty;
-
-    /// <summary>
-    /// OpenAI 端点
-    /// </summary>
-    public string OpenAIEndpoint { get; set; } = string.Empty;
+    /// <returns></returns>
+    public string Branch { get; set; }
 
     /// <summary>
     /// 私有化git账号

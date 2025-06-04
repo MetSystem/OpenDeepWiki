@@ -23,10 +23,33 @@ public sealed class KoalaHttpClientHandler : HttpClientHandler
                 json.max_tokens = maxToken;
                 json.max_completion_tokens = null;
             }
-            
+
+
+            var model = $"{json.model}";
+
+            if (model.StartsWith("qwen3", StringComparison.CurrentCultureIgnoreCase))
+            {
+                // 关闭推理模式
+                json.enable_thinking = false;
+            }
+
             // 重写请求体
             request.Content = new StringContent(JsonConvert.SerializeObject(json),
                 System.Text.Encoding.UTF8, "application/json");
+        }
+        else
+        {
+            var model = $"{json.model}";
+
+
+            if (model.StartsWith("qwen3", StringComparison.CurrentCultureIgnoreCase))
+            {
+                // 关闭推理模式
+                json.enable_thinking = false;
+                // 重写请求体
+                request.Content = new StringContent(JsonConvert.SerializeObject(json),
+                    System.Text.Encoding.UTF8, "application/json");
+            }
         }
 
         // 1. 启动计时
@@ -36,14 +59,36 @@ public sealed class KoalaHttpClientHandler : HttpClientHandler
             .ConfigureAwait(false);
         // 3. 停止计时
         stopwatch.Stop();
-        // 4. 记录简洁日志
-        Log.Logger.Information(
-            "HTTP {Method} {Uri} => {StatusCode} in {ElapsedMilliseconds}ms",
-            request.Method,
-            request.RequestUri,
-            (int)response.StatusCode,
-            stopwatch.ElapsedMilliseconds
-        );
-        return response;
+
+        // 如果响应错误那么输出错误信息
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Logger.Error(
+                "HTTP {Method} {Uri} => {StatusCode} in {ElapsedMilliseconds}ms, Error: {Error}",
+                request.Method,
+                request.RequestUri,
+                (int)response.StatusCode,
+                stopwatch.ElapsedMilliseconds,
+                errorContent
+            );
+            Log.Logger.Information("Request JSON: {RequestJson}",
+                await request.Content?.ReadAsStringAsync(cancellationToken) ?? "");
+            
+            throw new HttpRequestException(
+                $"Request failed with status code {(int)response.StatusCode}: {errorContent}");
+        }
+        else
+        {
+            // 4. 记录简洁日志
+            Log.Logger.Information(
+                "HTTP {Method} {Uri} => {StatusCode} in {ElapsedMilliseconds}ms",
+                request.Method,
+                request.RequestUri,
+                (int)response.StatusCode,
+                stopwatch.ElapsedMilliseconds
+            );
+            return response;
+        }
     }
 }

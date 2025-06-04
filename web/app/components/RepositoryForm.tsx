@@ -1,86 +1,191 @@
-import { Button, Form, Input, Modal, Select, message, Spin, Space, Switch } from 'antd';
+import { Button, Form, Input, Modal, Select, message, Spin, Divider, Space, Switch, Typography, theme, Radio, Upload, Alert } from 'antd';
 import { useState, useEffect } from 'react';
 import { RepositoryFormValues } from '../types';
-import { submitWarehouse } from '../services';
-import { fetchOpenAIModels } from '../services/openaiService';
+import { submitWarehouse, UploadAndSubmitWarehouse, getBranchList } from '../services';
+import { GithubOutlined, LockOutlined, UserOutlined, LinkOutlined, BranchesOutlined, UploadOutlined, FileZipOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useTranslation } from '../i18n/client';
+
+const { Text, Title } = Typography;
+const { useToken } = theme;
 
 interface RepositoryFormProps {
   open: boolean;
   onCancel: () => void;
   onSubmit: (values: RepositoryFormValues) => void;
+  initialValues?: Partial<RepositoryFormValues>;
+  disabledFields?: string[];
 }
 
 const RepositoryForm: React.FC<RepositoryFormProps> = ({
   open,
   onCancel,
   onSubmit,
+  initialValues,
+  disabledFields = [],
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [modelsFetching, setModelsFetching] = useState(false);
-  const [models, setModels] = useState<string[]>([]);
   const [enableGitAuth, setEnableGitAuth] = useState(false);
-  const [isDeepSeekSelected, setIsDeepSeekSelected] = useState(false);
-
-  // 当 API 密钥或端点变更时，尝试获取模型列表
-  const handleApiConfigChange = async () => {
-    const endpoint = form.getFieldValue('openAIEndpoint');
-    const apiKey = form.getFieldValue('openAIKey');
-
-    if (!endpoint || !apiKey) {
-      return;
-    }
-
-    try {
-      setModelsFetching(true);
-      const fetchedModels = await fetchOpenAIModels(endpoint, apiKey);
-      setModels(fetchedModels);
-
-      // 如果有模型且当前未选择，自动选择第一个
-      if (fetchedModels.length > 0 && !form.getFieldValue('model')) {
-        form.setFieldValue('model', fetchedModels[0]);
-      }
-
-      message.success('成功获取模型列表');
-    } catch (error) {
-      message.error('获取模型列表失败');
-      console.error('Failed to fetch models:', error);
-    } finally {
-      setModelsFetching(false);
-    }
-  };
+  const [submitType, setSubmitType] = useState('git');
+  const [fileList, setFileList] = useState<any[]>([]);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [manualBranchInput, setManualBranchInput] = useState(false);
+  const [lastAddress, setLastAddress] = useState<string>('');
+  const { token } = useToken();
+  const { t } = useTranslation();
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
+      if (loading) {
+        return;
+      }
 
-      // Call the API service
-      const response = await submitWarehouse(values) as any;
+      if (submitType === 'git') {
+        // 使用Git仓库地址提交
+        const response = await submitWarehouse(values) as any;
 
-      if (response.data.code == 200) {
-        message.success('仓库添加成功');
-        onSubmit(values);
-        form.resetFields();
+        if (response.data.code === 200) {
+          message.success(t('repository.form.success_message', '仓库添加成功'));
+          onSubmit(values);
+          form.resetFields();
+        } else {
+          message.error(response.data.message || t('repository.form.error_message', '添加失败，请重试'))
+        }
       } else {
-        message.error(response.data.message)
+        // 使用压缩包提交
+        if (fileList.length === 0) {
+          message.error(t('repository.form.upload_required', '请上传压缩包文件'));
+          setLoading(false);
+          return;
+        }
+
+        const file = fileList[0];
+        if (!file || !file.originFileObj) {
+          message.error(t('repository.form.invalid_file', '文件对象无效，请重新上传'));
+          setLoading(false);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file.originFileObj);
+        formData.append('organization', values.organization);
+        formData.append('repositoryName', values.repositoryName);
+
+        const { data } = await UploadAndSubmitWarehouse(formData) as any;
+        if (data) {
+          if (data.code === 200) {
+            message.success(t('repository.form.upload_success', '压缩包上传成功'));
+            form.resetFields();
+            setFileList([]);
+          } else {
+            message.error(data.message || t('repository.form.upload_failed', '上传失败，请重试'));
+          }
+        }
       }
     } catch (error) {
-      // Form validation errors are handled automatically
       console.error('Form submission failed:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // 重置表单时清空模型列表
-  useEffect(() => {
-    if (!open) {
-      setModels([]);
-      setEnableGitAuth(false);
-      setIsDeepSeekSelected(false);
+  // 监听表单地址变化，自动获取分支
+  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const currentAddress = e.target.value;
+    
+    // 当地址输入完成且不为空，且与上次不同时，自动获取分支
+    if (currentAddress && currentAddress !== lastAddress && currentAddress.includes('/')) {
+      // 如果地址看起来是一个完整的仓库地址（包含域名和路径），则尝试获取分支
+      if (
+        (currentAddress.includes('github.com/') || 
+         currentAddress.includes('gitee.com/')) &&
+        currentAddress.split('/').filter(Boolean).length >= 2
+      ) {
+        setLastAddress(currentAddress);
+        fetchBranches(currentAddress);
+      }
     }
-  }, [open]);
+  };
+
+  // 修改fetchBranches函数，允许传入地址参数，同时兼容点击事件
+  const fetchBranches = async (addressOrEvent?: string | React.MouseEvent<HTMLElement>) => {
+    // 判断参数类型
+    let address: string;
+    
+    // 如果是事件对象，忽略它并使用表单值
+    if (!addressOrEvent || typeof addressOrEvent !== 'string') {
+      address = form.getFieldValue('address');
+    } else {
+      // 如果是字符串，直接使用
+      address = addressOrEvent;
+    }
+    
+    if (!address) {
+      message.warning(t('repository.form.address_required', '请先输入仓库地址'));
+      return;
+    }
+
+    setLoadingBranches(true);
+    try {
+      let username = undefined;
+      let password = undefined;
+      
+      // 如果启用了Git认证，获取用户名和密码/令牌
+      if (enableGitAuth) {
+        username = form.getFieldValue('gitUserName');
+        password = form.getFieldValue('gitPassword');
+        
+        if (!username || !password) {
+          message.warning(t('repository.form.auth_required', '已启用认证，请先输入用户名和密码/令牌'));
+          setLoadingBranches(false);
+          return;
+        }
+      }
+
+      const response = await getBranchList(address, username, password);
+      
+      if (response.success && response.data && response.data.length > 0) {
+        setBranches(response.data);
+        setManualBranchInput(false);
+        
+        // 检查是否有默认分支，如果有则选择默认分支，否则选择第一个分支
+        const currentBranch = form.getFieldValue('branch');
+        if (!currentBranch || currentBranch === 'main' || currentBranch === 'master') {
+          // 优先使用API返回的默认分支
+          if (response.defaultBranch && response.data.includes(response.defaultBranch)) {
+            form.setFieldsValue({ branch: response.defaultBranch });
+            message.success(t('repository.form.default_branch_loaded', { branch: response.defaultBranch }));
+          } else {
+            // 如果没有默认分支或默认分支不在分支列表中，则使用第一个分支
+            form.setFieldsValue({ branch: response.data[0] });
+            message.info(t('repository.form.no_default_branch', '未找到默认分支，已选择第一个分支'));
+          }
+        }
+        
+        message.success(t('repository.form.branch_loaded', '分支列表加载成功，已选择默认分支'));
+      } else {
+        setBranches(response.data || ['main', 'master']);
+        setManualBranchInput(true);
+        
+        // 如果有返回默认分支但加载失败，尝试使用默认分支
+        if (response.defaultBranch) {
+          form.setFieldsValue({ branch: response.defaultBranch });
+        }
+        
+        message.warning(response.error || t('repository.form.branch_load_failed', '获取分支列表失败，请手动输入分支名'));
+      }
+    } catch (error) {
+      console.error('Failed to fetch branches:', error);
+      setBranches(['main', 'master']);
+      setManualBranchInput(true);
+      message.error(t('repository.form.branch_load_error', '获取分支列表出错，请检查仓库地址和认证信息'));
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
 
   const handleGitAuthChange = (checked: boolean) => {
     setEnableGitAuth(checked);
@@ -92,159 +197,322 @@ const RepositoryForm: React.FC<RepositoryFormProps> = ({
     }
   };
 
-  const handleModelChange = (value: string) => {
-    setIsDeepSeekSelected(value === 'DeepSeek-V3');
+  const handleTypeChange = (e: any) => {
+    setSubmitType(e.target.value);
+    // 切换时清空不相关的字段
+    if (e.target.value === 'git') {
+      form.setFieldsValue({
+        organization: undefined,
+        repositoryName: undefined
+      });
+      setFileList([]);
+    } else {
+      form.setFieldsValue({
+        address: undefined,
+        branch: 'main',
+        enableGitAuth: false,
+        gitUserName: undefined,
+        gitPassword: undefined
+      });
+      setEnableGitAuth(false);
+      setBranches([]);
+      setManualBranchInput(false);
+    }
   };
+
+  const toggleBranchInputMode = () => {
+    setManualBranchInput(!manualBranchInput);
+    // 切换到手动输入模式时，清空当前分支选择
+    if (!manualBranchInput) {
+      form.setFieldsValue({ branch: '' });
+    }
+  };
+
+  const uploadProps = {
+    onRemove: () => {
+      setFileList([]);
+    },
+    beforeUpload: (file: any) => {
+      const isZip = file.type === 'application/zip' ||
+        file.type === 'application/x-gzip' ||
+        file.type === 'application/x-tar' ||
+        file.type === 'application/x-brotli' ||
+        /\.(zip|gz|tar|br)$/.test(file.name);
+
+      if (!isZip) {
+        message.error(t('repository.form.format_error', '只支持 zip、gz、tar、br 格式的压缩文件'));
+        return Upload.LIST_IGNORE;
+      }
+
+      // 直接将文件对象添加到数组中
+      setFileList([
+        {
+          uid: file.uid || '-1',
+          name: file.name,
+          status: 'done',
+          originFileObj: file,
+        }
+      ]);
+
+      return false; // 阻止自动上传
+    },
+    fileList,
+    maxCount: 1,
+    // 确保正确处理文件列表变化
+    onChange(info: any) {
+      // 如果是上传成功或移除文件的操作，更新文件列表
+      if (info.file.status === 'done' || info.file.status === 'removed') {
+        setFileList(info.fileList);
+      }
+    },
+  };
+
+  // 重置表单
+  useEffect(() => {
+    if (!open) {
+      setEnableGitAuth(false);
+      setSubmitType('git');
+      setFileList([]);
+      setBranches([]);
+      setManualBranchInput(false);
+      setLastAddress('');
+      form.resetFields();
+    } else if (initialValues) {
+      form.setFieldsValue(initialValues);
+      // 如果初始值包含地址，尝试获取分支
+      if (initialValues.address && !disabledFields.includes('address')) {
+        setLastAddress(initialValues.address);
+        fetchBranches(initialValues.address);
+      }
+    }
+  }, [open]);
 
   return (
     <Modal
-      title="添加仓库"
+      title={
+        <Space>
+          {submitType === 'git' ?
+            <GithubOutlined style={{ color: token.colorPrimary }} /> :
+            <FileZipOutlined style={{ color: token.colorPrimary }} />
+          }
+          <Title level={5} style={{ margin: 0 }}>{t('repository.form.title')}</Title>
+        </Space>
+      }
       open={open}
-      onClose={() => {
-        onCancel()
-      }}
       onCancel={onCancel}
+      destroyOnClose
       footer={[
         <Button key="cancel" onClick={onCancel} disabled={loading}>
-          取消
+          {t('repository.form.cancel')}
         </Button>,
-        <Button key="submit" type="primary" onClick={handleSubmit} loading={loading}>
-          提交
+        <Button
+          key="submit"
+          type="primary"
+          onClick={handleSubmit}
+          loading={loading}
+          icon={submitType === 'git' ? <GithubOutlined /> : <UploadOutlined />}
+        >
+          {t('repository.form.submit')}
         </Button>,
       ]}
-      width={600}
+      width={500}
     >
       <Form
         form={form}
         layout="vertical"
+        requiredMark="optional"
         initialValues={{
           type: 'git',
           branch: 'main',
-          openAIEndpoint: 'https://api.token-ai.cn/v1',
           enableGitAuth: false,
+          submitType: 'git',
+          ...initialValues,
         }}
+        style={{ maxWidth: '100%' }}
       >
         <Form.Item
-          name="address"
-          label="仓库地址"
-          rules={[{ required: true, message: '请输入仓库地址' }]}
+          name="submitType"
+          label={t('repository.form.submit_type')}
         >
-          <Input placeholder="请输入仓库地址" />
+          <Radio.Group onChange={handleTypeChange} value={submitType}>
+            <Radio.Button value="git">{t('repository.form.git_repo')}</Radio.Button>
+            <Radio.Button value="upload">{t('repository.form.upload_zip')}</Radio.Button>
+          </Radio.Group>
         </Form.Item>
 
-        <Form.Item
-          name="enableGitAuth"
-          label="启用私有化Git验证"
-          valuePropName="checked"
-        >
-          <Switch onChange={handleGitAuthChange} />
-        </Form.Item>
-
-        {enableGitAuth && (
+        {submitType === 'git' ? (
           <>
             <Form.Item
-              name="gitUserName"
-              label="Git用户名"
-              rules={[{ required: enableGitAuth, message: '请输入Git用户名' }]}
+              name="address"
+              label={t('repository.form.repo_address')}
+              rules={[{ required: submitType === 'git', message: t('repository.form.address_required', '请输入仓库地址') }]}
             >
-              <Input placeholder="请输入Git用户名" />
+              <Input
+                placeholder={t('repository.form.repo_address_placeholder')}
+                prefix={<LinkOutlined style={{ color: token.colorTextSecondary }} />}
+                allowClear
+                disabled={disabledFields.includes('address')}
+                onChange={handleAddressChange}
+                onBlur={e => {
+                  // 当失去焦点且地址完整时，尝试获取分支
+                  if (e.target.value && e.target.value !== lastAddress) {
+                    setLastAddress(e.target.value);
+                    fetchBranches(e.target.value);
+                  }
+                }}
+              />
             </Form.Item>
 
             <Form.Item
-              name="gitPassword"
-              label="Git密码"
-              rules={[{ required: enableGitAuth, message: '请输入Git密码' }]}
+              name="branch"
+              label={
+                <Space>
+                  <BranchesOutlined style={{ color: token.colorPrimary }} />
+                  <Text>{t('repository.form.branch')}</Text>
+                  <Space>
+                    <Button 
+                      type="link" 
+                      size="small" 
+                      onClick={fetchBranches} 
+                      loading={loadingBranches}
+                      icon={<ReloadOutlined />}
+                      style={{ padding: '0 4px' }}
+                    >
+                      {t('repository.form.load_branches', '加载分支')}
+                    </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={toggleBranchInputMode}
+                      style={{ padding: '0 4px' }}
+                    >
+                      {manualBranchInput ? 
+                        t('repository.form.use_select', '使用选择器') : 
+                        t('repository.form.manual_input', '手动输入')}
+                    </Button>
+                  </Space>
+                </Space>
+              }
+              tooltip={t('repository.form.branch_tooltip', '选择要使用的仓库分支，点击加载分支按钮获取所有可用分支')}
+              rules={[{ required: submitType === 'git', message: t('repository.form.branch_required', '请选择分支') }]}
             >
-              <Input.Password placeholder="请输入Git密码" />
+              {manualBranchInput ? (
+                <Input
+                  placeholder={t('repository.form.branch_input_placeholder', '请输入分支名称')}
+                  prefix={<BranchesOutlined style={{ color: token.colorTextSecondary }} />}
+                  allowClear
+                  disabled={disabledFields.includes('branch')}
+                />
+              ) : (
+                <Select
+                  placeholder={t('repository.form.branch_placeholder', '选择分支')}
+                  loading={loadingBranches}
+                  showSearch
+                  allowClear
+                  disabled={disabledFields.includes('branch')}
+                >
+                  {branches.map(branch => (
+                    <Select.Option key={branch} value={branch}>
+                      {branch}
+                    </Select.Option>
+                  ))}
+                </Select>
+              )}
+            </Form.Item>
+
+            <Divider style={{ margin: `${token.marginMD}px 0` }} />
+
+            <Form.Item
+              name="enableGitAuth"
+              label={
+                <Space>
+                  <LockOutlined style={{ color: token.colorWarning }} />
+                  <Text>{t('repository.form.enable_auth')}</Text>
+                </Space>
+              }
+              tooltip={t('repository.form.auth_tooltip')}
+              valuePropName="checked"
+            >
+              <Switch onChange={handleGitAuthChange} />
+            </Form.Item>
+
+            {enableGitAuth && (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Form.Item
+                  name="gitUserName"
+                  label={t('repository.form.git_username')}
+                  rules={[{ required: enableGitAuth, message: t('repository.form.username_required', '请输入Git用户名') }]}
+                >
+                  <Input
+                    placeholder={t('repository.form.git_username_placeholder')}
+                    prefix={<UserOutlined style={{ color: token.colorTextSecondary }} />}
+                    allowClear
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="gitPassword"
+                  label={t('repository.form.git_password')}
+                  rules={[{ required: enableGitAuth, message: t('repository.form.password_required', '请输入Git密码或访问令牌') }]}
+                  extra={<Text type="secondary" style={{ fontSize: token.fontSizeSM }}>{t('repository.form.git_token_tip')}</Text>}
+                >
+                  <Input.Password
+                    placeholder={t('repository.form.git_password_placeholder')}
+                    prefix={<LockOutlined style={{ color: token.colorTextSecondary }} />}
+                  />
+                </Form.Item>
+              </Space>
+            )}
+          </>
+        ) : (
+          <>
+            <Alert
+              message={t('repository.form.upload_info')}
+              description={t('repository.form.upload_formats')}
+              type="info"
+              showIcon
+              style={{ marginBottom: token.marginMD }}
+            />
+
+            <Form.Item
+              name="organization"
+              label={t('repository.form.org_name')}
+              rules={[{ required: submitType === 'upload', message: t('repository.form.org_required', '请输入组织名称') }]}
+            >
+              <Input
+                placeholder={t('repository.form.org_name_placeholder')}
+                allowClear
+              />
             </Form.Item>
 
             <Form.Item
-              name="email"
-              label="Git邮箱"
-              rules={[
-                { required: enableGitAuth, message: '请输入Git邮箱' },
-                { type: 'email', message: '请输入有效的邮箱地址' }
-              ]}
+              name="repositoryName"
+              label={t('repository.form.repo_name')}
+              rules={[{ required: submitType === 'upload', message: t('repository.form.repo_name_required', '请输入仓库名称') }]}
             >
-              <Input placeholder="请输入Git邮箱" />
+              <Input
+                placeholder={t('repository.form.repo_name_placeholder')}
+                allowClear
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={t('repository.form.upload_zip_file')}
+              required={submitType === 'upload'}
+              extra={<Text type="secondary" style={{ fontSize: token.fontSizeSM }}>{t('repository.form.upload_tip')}</Text>}
+            >
+              <Upload.Dragger {...uploadProps}>
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined style={{ color: token.colorPrimary }} />
+                </p>
+                <p className="ant-upload-text">{t('repository.form.drag_text')}</p>
+                <p className="ant-upload-hint" style={{ fontSize: token.fontSizeSM }}>
+                  {t('repository.form.upload_formats')}
+                </p>
+              </Upload.Dragger>
             </Form.Item>
           </>
         )}
-
-        <Form.Item
-          name="openAIEndpoint"
-          label="OpenAI 端点"
-        >
-          <Space style={{ width: '100%' }}>
-            <Input placeholder="请输入 OpenAI 端点" style={{ flex: 1 }} />
-            {isDeepSeekSelected && (
-              <Button 
-                type="primary" 
-                href="https://account.coreshub.cn/signup?invite=ZmpMQlZxYVU=" 
-                target="_blank"
-              >
-                免费领取5000w token
-              </Button>
-            )}
-          </Space>
-        </Form.Item>
-
-        <Form.Item
-          name="openAIKey"
-          rules={[{ required: true, message: '请输入 OpenAI 密钥' }]}
-          label="OpenAI 密钥"
-        >
-          <Input.Password placeholder="请输入 OpenAI 密钥" />
-        </Form.Item>
-
-        <Form.Item
-          name="model"
-          label="使用模型"
-          rules={[{ required: true, message: '请选择使用的模型' }]}
-        >
-          <Select
-            onChange={handleModelChange}
-            options={[
-              {
-                label: 'gpt-4.1',
-                value: 'gpt-4.1',
-              },
-              {
-                label: 'gpt-4o',
-                value: 'gpt-4o',
-              },
-              {
-                label: 'gpt-4o-mini',
-                value: 'gpt-4o-mini',
-              },
-              {
-                label: 'gpt-4.1-mini',
-                value: 'gpt-4.1-mini',
-              },
-              {
-                label: 'QwQ-32B',
-                value: 'QwQ-32B',
-              },
-              {
-                label: 'o4-mini',
-                value: 'o4-mini',
-              },
-              {
-                label: 'o3-mini',
-                value: 'o3-mini',
-              },
-              {
-                label: 'doubao-1-5-pro-256k-250115',
-                value: 'doubao-1-5-pro-256k-250115',
-              },
-              {
-                label: 'DeepSeek-V3',
-                value: 'DeepSeek-V3',
-              },
-            ]}
-          >
-          </Select>
-        </Form.Item>
       </Form>
     </Modal>
   );

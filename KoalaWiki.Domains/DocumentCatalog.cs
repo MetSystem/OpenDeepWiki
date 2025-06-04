@@ -1,6 +1,7 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+﻿using System;
+using System.Collections.Generic;
 
-namespace KoalaWiki.Entities;
+namespace KoalaWiki.Domains;
 
 public class DocumentCatalog : Entity<string>
 {
@@ -34,6 +35,19 @@ public class DocumentCatalog : Entity<string>
     
     public string WarehouseId { get; set; } = string.Empty;
     
-    [NotMapped]
+    /// <summary>
+    /// 是否处理完成
+    /// </summary>
+    public bool IsCompleted { get; set; } = false;
+    
     public string Prompt { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 是否删除
+    /// </summary>
+    public bool IsDeleted { get; set; } = false;
+    
+    public DateTime? DeletedTime { get; set; } = null;
+    
+    public List<string> DependentFile { get; set; } = new();
 }

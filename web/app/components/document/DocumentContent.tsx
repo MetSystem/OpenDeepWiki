@@ -4,14 +4,17 @@ import remarkToc from 'remark-toc';
 import remarkMath from 'remark-math';
 import rehypeSlug from 'rehype-slug';
 import rehypeKatex from 'rehype-katex';
+import { Flexbox } from 'react-layout-kit';
 
-import React, { useEffect, useRef } from 'react';
-import { Markdown } from '@lobehub/ui';
-import { Card, Divider, Space, Tag, Typography } from 'antd';
-import { BookOutlined, LinkOutlined } from '@ant-design/icons';
-import mermaid from 'mermaid';
+import React, { ReactNode, useEffect, useRef, useState } from 'react';
+import { Markdown, Mermaid } from '@lobehub/ui';
+import { markdownElements } from './MarkdownElements';
+import { Alert, Typography } from 'antd';
+import RenderThinking from './Component';
 
-const { Text } = Typography;
+import { normalizeThinkTags, remarkCaptureThink } from './thinking/remarkPlugin';
+
+const { Title } = Typography;
 
 interface DocumentContentProps {
   document: any;
@@ -27,6 +30,8 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
   token
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
+  const [processedContent, setProcessedContent] = useState<string>('');
+  const [thinkingContents, setThinkingContents] = useState<string[]>([]);
 
   // 添加处理代码块的功能
   useEffect(() => {
@@ -37,17 +42,14 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
     });
   }, [document?.content]);
 
-  // 复制文章链接
-  const copyPageLink = () => {
-    navigator.clipboard.writeText(window.location.href)
-      .catch(err => {
-        console.error('复制失败:', err);
-      });
-  };
 
-  const customRender = (node: any) => {
-    return node;
-  };
+  useEffect(() => {
+    if (document?.content) {
+      setProcessedContent(normalizeThinkTags(document.content));
+    }
+  }, [document?.content]);
+
+  const rehypePlugins = markdownElements.map((element) => element.rehypePlugin);
 
   return (
     <div ref={contentRef} style={{
@@ -56,22 +58,36 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
       borderRadius: '0px',
       color: token.colorText
     }}>
-      <div className="markdown-content">
+      {/* 可见的H1标题用于SEO */}
+      <header>
+        <Title level={1} style={{ marginBottom: '24px', wordBreak: 'break-word' }} itemProp="headline">
+          {document?.title || '文档'}
+        </Title>
+        {document?.updateTime && (
+          <div style={{ marginBottom: '16px', color: token.colorTextSecondary, fontSize: '14px' }}>
+            最后更新时间: <time itemProp="dateModified" dateTime={document?.updateTime}>{document?.updateTime}</time>
+          </div>
+        )}
+      </header>
+
+      {/* 思考内容 */}
+      {thinkingContents.map((content, index) => (
+        <RenderThinking key={`thinking-${index}`}>
+          {content}
+        </RenderThinking>
+      ))}
+
+      {/* 文档正文 */}
+      <div className="markdown-content" itemProp="articleBody">
         <Markdown
-          enableImageGallery
-          enableLatex
-          enableMermaid
-          enableCustomFootnotes
-          allowHtml
-          customRender={customRender}
-          title={document?.title}
-          remarkPlugins={[remarkGfm, remarkToc, remarkMath]}
-          rehypePlugins={[rehypeRaw, rehypeSlug, rehypeKatex]}
+          variant='chat'
+          enableCustomFootnotes={true}
+          fullFeaturedCodeBlock={true}
         >
-          {document?.content || ''}
+          {processedContent}
         </Markdown>
       </div>
-      
+
       <style jsx global>{`
         .markdown-content h1,
         .markdown-content h2,
@@ -101,12 +117,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
         
         .markdown-content h3 {
           font-size: 20px;
-        }
-        
-        .markdown-content p {
-          margin-bottom: 16px;
-          line-height: 1.8;
-          font-size: 16px;
         }
         
         .markdown-content a {
@@ -179,8 +189,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
         
         .markdown-content pre {
           background: rgba(0,0,0,0.03);
-          padding: 16px;
-          margin: 16px 0;
           border-radius: 0px;
           overflow-x: auto;
         }
@@ -209,6 +217,13 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
         .markdown-content h2 + p,
         .markdown-content h3 + p {
           margin-top: 16px;
+        }
+
+        /* AntThinking 内容样式 */
+        .ant-thinking-content {
+          white-space: pre-wrap;
+          font-size: 14px;
+          line-height: 1.6;
         }
       `}</style>
     </div>

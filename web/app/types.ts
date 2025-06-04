@@ -17,12 +17,19 @@ export interface Repository {
   status: number;
   prompt: string;
   version: string;
-  model: string;
-  openAIKey: string;
-  openAIEndpoint: string;
+  isRecommended: boolean;
   createdAt: string;
   updatedAt?: string;
   error?:string;
+  organizationName: string;
+  success: boolean;
+  stars: number;
+  forks: number;
+  avatarUrl: string;
+  ownerUrl: string;
+  repoUrl: string;
+  language?: string;
+  license?: string;
 }
 
 export interface RepositoryFormValues {
@@ -30,7 +37,4 @@ export interface RepositoryFormValues {
   type: string;
   branch: string;
   prompt: string;
-  model: string;
-  openAIKey: string;
-  openAIEndpoint: string;
 } 

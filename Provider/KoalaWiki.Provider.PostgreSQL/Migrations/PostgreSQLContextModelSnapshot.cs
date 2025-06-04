@@ -22,7 +22,93 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("KoalaWiki.Entities.Document", b =>
+            modelBuilder.Entity("KoalaWiki.Domains.ChatShareMessage", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Ip")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeep")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WarehouseId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("ChatShareMessages");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.ChatShareMessageItem", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChatShareMessageId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("CompletionToken")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Files")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PromptToken")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Think")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TotalTime")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarehouseId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatShareMessageId");
+
+                    b.HasIndex("Question");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("ChatShareMessageItems");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.Document", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -63,13 +149,20 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.ToTable("Documents");
                 });
 
-            modelBuilder.Entity("KoalaWiki.Entities.DocumentCatalog", b =>
+            modelBuilder.Entity("KoalaWiki.Domains.DocumentCatalog", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("DeletedTime")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("DependentFile")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -79,6 +172,12 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -87,6 +186,10 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("ParentId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Url")
@@ -103,6 +206,8 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
 
                     b.HasIndex("DucumentId");
 
+                    b.HasIndex("IsDeleted");
+
                     b.HasIndex("Name");
 
                     b.HasIndex("ParentId");
@@ -112,7 +217,7 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.ToTable("DocumentCatalogs");
                 });
 
-            modelBuilder.Entity("KoalaWiki.Entities.DocumentCommitRecord", b =>
+            modelBuilder.Entity("KoalaWiki.Domains.DocumentCommitRecord", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -135,6 +240,10 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.Property<DateTime>("LastUpdate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("WarehouseId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -146,6 +255,227 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.HasIndex("WarehouseId");
 
                     b.ToTable("DocumentCommitRecords");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.FineTuning.FineTuningTask", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Dataset")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentCatalogId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OriginalDataset")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TrainingDatasetId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WarehouseId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DocumentCatalogId");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TrainingDatasetId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("FineTuningTasks");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.FineTuning.TrainingDataset", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ApiKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WarehouseId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("TrainingDatasets");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.MCP.MCPHistory", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasComment("主键Id");
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("CostTime")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Ip")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserAgent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("WarehouseId")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.ToTable("MCPHistories", t =>
+                        {
+                            t.HasComment("MCP历史记录");
+                        });
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.Users.User", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Avatar")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("LastLoginIp")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Email");
+
+                    b.HasIndex("LastLoginAt");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("KoalaWiki.Entities.DocumentFile.DocumentFileItem", b =>
@@ -174,6 +504,9 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.Property<string>("Extra")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("IsEmbedded")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Metadata")
                         .IsRequired()
@@ -273,8 +606,10 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Branch")
-                        .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int?>("Classify")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
@@ -287,7 +622,6 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Error")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("GitPassword")
@@ -296,20 +630,17 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.Property<string>("GitUserName")
                         .HasColumnType("text");
 
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<bool>("IsEmbedded")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsRecommended")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("OpenAIEndpoint")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("OpenAIKey")
-                        .IsRequired()
+                    b.Property<string>("OptimizedDirectoryStructure")
                         .HasColumnType("text");
 
                     b.Property<string>("OrganizationName")
@@ -317,18 +648,18 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Prompt")
-                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Readme")
                         .HasColumnType("text");
 
                     b.Property<byte>("Status")
                         .HasColumnType("smallint");
 
                     b.Property<string>("Type")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Version")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -348,6 +679,17 @@ namespace KoalaWiki.Provider.PostgreSQL.Migrations
                     b.HasIndex("Type");
 
                     b.ToTable("Warehouses");
+                });
+
+            modelBuilder.Entity("KoalaWiki.Domains.FineTuning.FineTuningTask", b =>
+                {
+                    b.HasOne("KoalaWiki.Domains.DocumentCatalog", "DocumentCatalog")
+                        .WithMany()
+                        .HasForeignKey("DocumentCatalogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentCatalog");
                 });
 
             modelBuilder.Entity("KoalaWiki.Entities.DocumentFile.DocumentFileItemSource", b =>

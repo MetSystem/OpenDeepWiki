@@ -5,7 +5,7 @@ namespace KoalaWiki.Git;
 
 public class GitService
 {
-    private static (string localPath, string organization) GetRepositoryPath(string repositoryUrl)
+    public static (string localPath, string organization) GetRepositoryPath(string repositoryUrl)
     {
         // 解析仓库地址
         var uri = new Uri(repositoryUrl);
@@ -19,11 +19,69 @@ public class GitService
         return (repositoryPath, organization);
     }
 
+    public static (List<Commit> commits, string Sha) PullRepository(
+        [Description("仓库地址")] string repositoryUrl,
+        string commitId,
+        string userName = "",
+        string password = "")
+    {
+        var pullOptions = new PullOptions
+        {
+            FetchOptions = new FetchOptions()
+            {
+                CertificateCheck = (_, _, _) => true,
+                CredentialsProvider = (_url, _user, _cred) =>
+                    new UsernamePasswordCredentials
+                    {
+                        Username = userName,
+                        Password = password
+                    }
+            }
+        };
+
+        // 先克隆
+        if (!Directory.Exists(repositoryUrl))
+        {
+            throw new Exception("仓库不存在，请先克隆仓库");
+        }
+        
+        if(!Directory.Exists(repositoryUrl))
+        {
+            throw new Exception("克隆失败");
+        }
+
+        // pull仓库
+        using var repo = new Repository(repositoryUrl);
+
+        var result = Commands.Pull(repo, new Signature("KoalaWiki", "239573049@qq.com", DateTimeOffset.Now),
+            pullOptions);
+
+        // commitId是上次提交id，根据commitId获取到到现在的所有提交记录
+        if (!string.IsNullOrEmpty(commitId))
+        {
+            var commit = repo.Lookup<Commit>(commitId);
+            if (commit != null)
+            {
+                // 获取从指定commitId到HEAD的所有提交记录
+                var filter = new CommitFilter
+                {
+                    IncludeReachableFrom = repo.Head.Tip,
+                    ExcludeReachableFrom = commit,
+                    SortBy = CommitSortStrategies.Time
+                };
+                var commits = repo.Commits.QueryBy(filter).ToList();
+                return (commits, repo.Head.Tip.Sha);
+            }
+        }
+
+        return (repo.Commits.ToList(), repo.Head.Tip.Sha);
+    }
+
     /// <summary>
     /// 拉取指定仓库
     /// </summary>
     /// <returns></returns>
-    public static GitRepositoryInfo PullRepository(
+    public static GitRepositoryInfo CloneRepository(
         [Description("仓库地址")] string repositoryUrl,
         string userName = "",
         string password = "",
@@ -35,41 +93,59 @@ public class GitService
         {
             FetchOptions =
             {
-                CertificateCheck = (certificate, chain, errors) => true,
+                CertificateCheck = (_, _, _) => true,
                 Depth = 0,
-            }
+            },
+            BranchName = branch
         };
 
         var names = repositoryUrl.Split('/');
 
         var repositoryName = names[^1].Replace(".git", "");
 
+        localPath = Path.Combine(localPath, branch);
 
         // 判断仓库是否已经存在
         if (Directory.Exists(localPath))
         {
-            // 获取当前仓库的git分支
-            using var repo = new Repository(localPath);
-            
-            // 判断仓库是否已经克隆
-            if (!repo.Network.Remotes.Any())
+            try
             {
-                // 如果没有克隆，则克隆
-                var str = Repository.Clone(repositoryUrl, localPath, cloneOptions);
+                // 获取当前仓库的git分支
+                using var repo = new Repository(localPath);
+
+                var branchName = repo.Head.FriendlyName;
+                // 获取当前仓库的git版本
+                var version = repo.Head.Tip.Sha;
+                // 获取当前仓库的git提交时间
+                var commitTime = repo.Head.Tip.Committer.When;
+                // 获取当前仓库的git提交人
+                var commitAuthor = repo.Head.Tip.Committer.Name;
+                // 获取当前仓库的git提交信息
+                var commitMessage = repo.Head.Tip.Message;
+
+                return new GitRepositoryInfo(localPath, repositoryName, organization, branchName, commitTime.ToString(),
+                    commitAuthor, commitMessage, version);
             }
+            catch (Exception e)
+            {
+                // 删除目录以后在尝试一次
+                Directory.Delete(localPath, true);
+                var str = Repository.Clone(repositoryUrl, localPath, cloneOptions);
+                using var repo = new Repository(localPath);
 
-            var branchName = repo.Head.FriendlyName;
-            // 获取当前仓库的git版本
-            var version = repo.Head.Tip.Sha;
-            // 获取当前仓库的git提交时间
-            var commitTime = repo.Head.Tip.Committer.When;
-            // 获取当前仓库的git提交人
-            var commitAuthor = repo.Head.Tip.Committer.Name;
-            // 获取当前仓库的git提交信息
-            var commitMessage = repo.Head.Tip.Message;
+                var branchName = repo.Head.FriendlyName;
+                // 获取当前仓库的git版本
+                var version = repo.Head.Tip.Sha;
+                // 获取当前仓库的git提交时间
+                var commitTime = repo.Head.Tip.Committer.When;
+                // 获取当前仓库的git提交人
+                var commitAuthor = repo.Head.Tip.Committer.Name;
+                // 获取当前仓库的git提交信息
+                var commitMessage = repo.Head.Tip.Message;
 
-            return new GitRepositoryInfo(localPath, repositoryName, organization, branchName, commitTime.ToString(),
-                commitAuthor, commitMessage, version);
+                return new GitRepositoryInfo(localPath, repositoryName, organization, branchName, commitTime.ToString(),
+                    commitAuthor, commitMessage, version);
+            }
         }
         else
         {
@@ -83,10 +159,11 @@ public class GitService
 
                 cloneOptions = new CloneOptions
                 {
+                    BranchName = branch,
                     FetchOptions =
                     {
                         Depth = 0,
-                        CertificateCheck = (certificate, chain, errors) => true,
+                        CertificateCheck = (_, _, _) => true,
                         CredentialsProvider = (_url, _user, _cred) =>
                             new UsernamePasswordCredentials
                             {

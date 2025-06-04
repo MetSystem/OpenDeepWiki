@@ -5,15 +5,16 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <UserSecretsId>0f84b266-a3fb-491a-be8f-4df656fb6fcd</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="FastService" Version="0.1.3" />
         <PackageReference Include="FastService.Analyzers" Version="0.1.3" />
         <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
+        <PackageReference Include="Lost.SemanticKernel.Connectors.Anthropic" Version="1.25.0-alpha3" />
         <PackageReference Include="Mapster.DependencyInjection" Version="1.0.1" />
-        <PackageReference Include="Markdig" Version="0.41.1" />
-        <PackageReference Include="Markdig.SyntaxHighlighting" Version="1.1.7" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.5" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="9.0.4" />
@@ -25,11 +26,18 @@
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.SemanticKernel" Version="1.48.0" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Postgres" Version="1.48.0-preview" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Sqlite" Version="1.48.0-preview" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.5" />
+        <PackageReference Include="Microsoft.KernelMemory" Version="0.98.250508.3" />
+        <PackageReference Include="Microsoft.SemanticKernel" Version="1.54.0" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.AzureOpenAI" Version="1.54.0" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.54.0" />
+        <PackageReference Include="ModelContextProtocol" Version="0.2.0-preview.2" />
+        <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.2.0-preview.2" />
+        <PackageReference Include="ModelContextProtocolServer.Sse" Version="0.0.1-preview-06" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.2.7" />
+        <PackageReference Include="Octokit" Version="14.0.0" />
+        <PackageReference Include="Polly" Version="8.5.2" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.4.7" />
         <PackageReference Include="Serilog" Version="4.2.0" />
         <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
         <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.1" />
@@ -47,6 +55,15 @@
       <Content Update="plugins\CodeAnalysis\CommitAnalyze\config.json">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
+      <Content Update="plugins\CodeAnalysis\CodeDirSimplifier\config.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <Content Update="plugins\CodeAnalysis\GenerateDescription\config.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+      <Content Update="plugins\CodeAnalysis\FunctionPrompt\config.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
     </ItemGroup>
 
     <ItemGroup>
@@ -56,12 +73,44 @@
       <None Update="plugins\CodeAnalysis\CommitAnalyze\skprompt.txt">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
+      <None Update="plugins\CodeAnalysis\CodeDirSimplifier\skprompt.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="plugins\CodeAnalysis\GenerateDescription\skprompt.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="plugins\CodeAnalysis\FunctionPrompt\skprompt.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Prompts\Warehouse\*.md">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Prompts\Warehouse\AnalyzeCatalogueFrameworks.md">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\..\KoalaWiki.Domains\KoalaWiki.Domains.csproj" />
       <ProjectReference Include="..\..\Provider\KoalaWiki.Provider.PostgreSQL\KoalaWiki.Provider.PostgreSQL.csproj" />
       <ProjectReference Include="..\..\Provider\KoalaWiki.Provider.Sqlite\KoalaWiki.Provider.Sqlite.csproj" />
+      <ProjectReference Include="..\..\Provider\KoalaWiki.Provider.SqlServer\KoalaWiki.Provider.SqlServer.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Update="KoalaWarehouse\DocumentsService.Commit.cs">
+        <DependentUpon>DocumentsService.cs</DependentUpon>
+      </Compile>
+      <Compile Update="WarehouseProcessing\WarehouseProcessingTask.Analyse.cs">
+        <DependentUpon>WarehouseProcessingTask.cs</DependentUpon>
+      </Compile>
+      <Compile Update="WarehouseProcessing\WarehouseProcessingTask.Commit.cs">
+        <DependentUpon>WarehouseProcessingTask.cs</DependentUpon>
+      </Compile>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="plugins\CodeAnalysis\GenerateDescription\" />
     </ItemGroup>
 
 </Project>

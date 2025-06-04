@@ -1,4 +1,7 @@
-﻿namespace KoalaWiki.Entities;
+﻿using System;
+using KoalaWiki.Entities;
+
+namespace KoalaWiki.Domains;
 
 public class Entity<TKey> : IEntity<TKey>, ICreateEntity
 {

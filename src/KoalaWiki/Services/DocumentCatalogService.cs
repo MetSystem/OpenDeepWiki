@@ -1,8 +1,10 @@
 ﻿using FastService;
 using KoalaWiki.Core.DataAccess;
+using KoalaWiki.Domains;
 using KoalaWiki.Entities;
 using LibGit2Sharp;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 
 namespace KoalaWiki.Services;
 
@@ -15,17 +17,18 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
     /// <param name="name"></param>
     /// <returns></returns>
     /// <exception cref="NotFoundException"></exception>
-    public async Task<object> GetDocumentCatalogsAsync(string organizationName, string name)
+    public async Task<object> GetDocumentCatalogsAsync(string organizationName, string name, string? branch)
     {
         var warehouse = await dbAccess.Warehouses
             .AsNoTracking()
-            .Where(x => x.Name == name && x.OrganizationName == organizationName)
+            .Where(x => x.Name == name && x.OrganizationName == organizationName &&
+                        (string.IsNullOrEmpty(branch) || x.Branch == branch))
             .FirstOrDefaultAsync();
 
         // 如果没有找到仓库，返回空列表
         if (warehouse == null)
         {
-            throw new NotFoundException("仓库不存在");
+            throw new NotFoundException($"仓库不存在，请检查仓库名称和组织名称:{organizationName} {name}");
         }
 
         var document = await dbAccess.Documents
@@ -34,7 +37,7 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
             .FirstOrDefaultAsync();
 
         var documentCatalogs = await dbAccess.DocumentCatalogs
-            .Where(x => x.WarehouseId == warehouse.Id)
+            .Where(x => x.WarehouseId == warehouse.Id && x.IsDeleted == false)
             .ToListAsync();
 
         string lastUpdate;
@@ -45,7 +48,6 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
             var time = DateTime.Now - document.LastUpdate;
             lastUpdate = time.Days == 0 ? $"{time.Hours}小时前" : $"{time.Days}天前";
 
-            // 如果超过7天，显示日期
             if (time.Days > 7)
             {
                 lastUpdate = document.LastUpdate.ToString("yyyy-MM-dd");
@@ -56,12 +58,21 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
             lastUpdate = "刚刚";
         }
 
+        var branchs =
+            (await dbAccess.Warehouses
+                .Where(x => x.Name == name && x.OrganizationName == organizationName && x.Type == "git")
+                .Select(x => x.Branch)
+                .ToArrayAsync());
+
         return new
         {
             items = BuildDocumentTree(documentCatalogs),
             lastUpdate,
             document?.Description,
+            progress = documentCatalogs.Count(x => x.IsCompleted) * 100 / documentCatalogs.Count,
             git = warehouse.Address,
+            branchs = branchs,
+            document?.WarehouseId,
             document?.LikeCount,
             document?.Status,
             document?.CommentCount,
@@ -72,18 +83,25 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
     /// 根据目录id获取文件
     /// </summary>
     /// <returns></returns>
-    public async Task GetDocumentByIdAsync(HttpContext httpContext, string owner, string name, string path)
+    public async Task GetDocumentByIdAsync(HttpContext httpContext, string owner, string name, string? branch,
+        string path)
     {
         // 先根据仓库名称和组织名称找到仓库
         var query = await dbAccess.Warehouses
             .AsNoTracking()
-            .Where(x => x.Name == name && x.OrganizationName == owner)
+            .Where(x => x.Name == name && x.OrganizationName == owner &&
+                        (string.IsNullOrEmpty(branch) || x.Branch == branch))
             .FirstOrDefaultAsync();
+
+        if (query == null)
+        {
+            throw new NotFoundException($"仓库不存在，请检查仓库名称和组织名称:{owner} {name}");
+        }
 
         // 找到catalog
         var id = await dbAccess.DocumentCatalogs
             .AsNoTracking()
-            .Where(x => x.WarehouseId == query.Id && x.Url == path)
+            .Where(x => x.WarehouseId == query.Id && x.Url == path && x.IsDeleted == false)
             .Select(x => x.Id)
             .FirstOrDefaultAsync();
 
@@ -109,9 +127,64 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
             fileSource,
             address = query?.Address.Replace(".git", string.Empty),
             query?.Branch,
+            documentCatalogId = id
         });
     }
 
+    /// <summary>
+    /// 更新目录信息
+    /// </summary>
+    public async Task<bool> UpdateCatalogAsync([Required] UpdateCatalogRequest request)
+    {
+        try
+        {
+            var catalog = await dbAccess.DocumentCatalogs.FindAsync(request.Id);
+            if (catalog == null)
+            {
+                return false;
+            }
+
+            catalog.Name = request.Name;
+            catalog.Prompt = request.Prompt;
+            
+            await dbAccess.SaveChangesAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // 记录异常
+            Console.WriteLine($"更新目录失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 更新文档内容
+    /// </summary>
+    public async Task<bool> UpdateDocumentContentAsync([Required] UpdateDocumentContentRequest request)
+    {
+        try
+        {
+            var item = await dbAccess.DocumentFileItems
+                .Where(x => x.DocumentCatalogId == request.Id)
+                .FirstOrDefaultAsync();
+
+            if (item == null)
+            {
+                return false;
+            }
+
+            item.Content = request.Content;
+            await dbAccess.SaveChangesAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // 记录异常
+            Console.WriteLine($"更新文档内容失败: {ex.Message}");
+            return false;
+        }
+    }
 
     /// <summary>
     /// 递归构建文档目录树形结构
@@ -135,7 +208,10 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
                     label = item.Name,
                     Url = item.Url,
                     item.Description,
-                    key = item.Id
+                    key = item.Id,
+                    lastUpdate = item.CreatedAt,
+                    // 是否启用
+                    disabled = item.IsCompleted == false
                 });
             }
             else
@@ -146,7 +222,10 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
                     item.Description,
                     Url = item.Url,
                     key = item.Id,
-                    children
+                    lastUpdate = item.CreatedAt,
+                    children,
+                    // 是否启用
+                    disabled = item.IsCompleted == false
                 });
             }
         }
@@ -175,9 +254,12 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
                 children.Add(new
                 {
                     label = child.Name,
+                    lastUpdate = child.CreatedAt,
                     Url = child.Url,
                     key = child.Id,
-                    child.Description
+                    child.Description,
+                    // 是否启用
+                    disabled = child.IsCompleted == false
                 });
             }
             else
@@ -188,11 +270,51 @@ public class DocumentCatalogService(IKoalaWikiContext dbAccess) : FastApi
                     key = child.Id,
                     Url = child.Url,
                     child.Description,
-                    children = subChildren
+                    lastUpdate = child.CreatedAt,
+                    children = subChildren,
+                    // 是否启用
+                    disabled = child.IsCompleted == false
                 });
             }
         }
 
         return children;
     }
+}
+
+/// <summary>
+/// 更新目录请求
+/// </summary>
+public class UpdateCatalogRequest
+{
+    /// <summary>
+    /// 目录ID
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 目录名称
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 提示词
+    /// </summary>
+    public string Prompt { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 更新文档内容请求
+/// </summary>
+public class UpdateDocumentContentRequest
+{
+    /// <summary>
+    /// 文档目录ID
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 文档内容
+    /// </summary>
+    public string Content { get; set; } = string.Empty;
 }

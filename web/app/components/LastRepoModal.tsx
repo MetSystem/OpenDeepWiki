@@ -1,5 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Modal, Form, Input, Button, message, Spin, Typography, Descriptions, Tag, Space, Result, Row, Col, theme } from 'antd';
+import { 
+  Modal, 
+  Form, 
+  Input, 
+  Button, 
+  message, 
+  Spin, 
+  Typography, 
+  Descriptions, 
+  Tag, 
+  Space, 
+  Result, 
+  Row, 
+  Col, 
+  theme,
+  Divider,
+  Card
+} from 'antd';
 import { 
   SearchOutlined, 
   GithubOutlined, 
@@ -11,12 +28,15 @@ import {
   CheckCircleOutlined,
   StopOutlined,
   LockOutlined,
-  QuestionCircleOutlined
+  QuestionCircleOutlined,
+  LinkOutlined
 } from '@ant-design/icons';
 import { getLastWarehouse } from '../services/warehouseService';
 import { Repository } from '../types';
+import { homepage } from '../const/urlconst';
+import { useTranslation } from '../i18n/client';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 const { useToken } = theme;
 
 interface LastRepoModalProps {
@@ -30,6 +50,7 @@ const LastRepoModal: React.FC<LastRepoModalProps> = ({ open, onCancel }) => {
   const [repository, setRepository] = useState<Repository | null>(null);
   const [searched, setSearched] = useState(false);
   const { token } = useToken();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) {
@@ -51,12 +72,12 @@ const LastRepoModal: React.FC<LastRepoModalProps> = ({ open, onCancel }) => {
           setRepository(response.data);
           setSearched(true);
         } else {
-          message.error('查询失败: ' + (response.error || '未找到相关仓库'));
+          message.error(t('repository.last_repo.query_failed', '查询失败: ') + (response.error || t('repository.last_repo.not_found', '未找到相关仓库')));
           setRepository(null);
         }
       } catch (error) {
         console.error('查询仓库出错:', error);
-        message.error('查询仓库出错，请稍后重试');
+        message.error(t('repository.last_repo.error', '查询仓库出错，请稍后重试'));
         setRepository(null);
       } finally {
         setLoading(false);
@@ -76,139 +97,189 @@ const LastRepoModal: React.FC<LastRepoModalProps> = ({ open, onCancel }) => {
   // 获取仓库状态文本
   const getStatusText = (status: number) => {
     const statusMap: Record<number, { text: string; color: string; icon: React.ReactNode }> = {
-      0: { text: '待处理', color: 'warning', icon: <ClockCircleOutlined /> },
-      1: { text: '处理中', color: 'processing', icon: <SyncOutlined spin /> },
-      2: { text: '已完成', color: 'success', icon: <CheckCircleOutlined /> },
-      3: { text: '已取消', color: 'default', icon: <StopOutlined /> },
-      4: { text: '未授权', color: 'purple', icon: <LockOutlined /> },
-      99: { text: '已失败', color: 'error', icon: <ExclamationCircleOutlined /> },
+      0: { text: t('repository.status.pending', '待处理'), color: 'warning', icon: <ClockCircleOutlined /> },
+      1: { text: t('repository.status.processing', '处理中'), color: 'processing', icon: <SyncOutlined spin /> },
+      2: { text: t('repository.status.completed', '已完成'), color: 'success', icon: <CheckCircleOutlined /> },
+      3: { text: t('repository.status.cancelled', '已取消'), color: 'default', icon: <StopOutlined /> },
+      4: { text: t('repository.status.unauthorized', '未授权'), color: 'purple', icon: <LockOutlined /> },
+      99: { text: t('repository.status.failed', '已失败'), color: 'error', icon: <ExclamationCircleOutlined /> },
     };
-    return statusMap[status] || { text: '未知状态', color: 'default', icon: <QuestionCircleOutlined /> };
+    return statusMap[status] || { text: t('repository.status.unknown', '未知状态'), color: 'default', icon: <QuestionCircleOutlined /> };
   };
 
-  const contentStyle = {
-    backgroundColor: token.colorBgContainer,
-    borderRadius: token.borderRadiusLG,
-    padding: token.paddingMD,
-    marginTop: token.marginMD,
-    boxShadow: token.boxShadowTertiary
-  };
-
-  return (
-    <Modal
-      title={<Typography.Title level={4} style={{ margin: 0 }}>查询上次提交的仓库</Typography.Title>}
-      open={open}
-      onCancel={handleCancel}
-      footer={null}
-      width={{ xs: '90%', sm: 520, md: 600 }}
-      bodyStyle={{ padding: token.paddingLG }}
-      maskStyle={{ backgroundColor: token.colorBgMask }}
-      centered
-    >
-      <Form form={form} layout="vertical">
-        <Form.Item
-          name="address"
-          label={<Text strong>仓库地址</Text>}
-          rules={[{ required: true, message: '请输入仓库地址' }]}
-          tooltip={{ title: '输入您的Git仓库完整URL', icon: <InfoCircleOutlined /> }}
-        >
-          <Input 
-            placeholder="请输入Git仓库地址，例如: https://github.com/username/repo" 
-            prefix={<GithubOutlined style={{ color: token.colorTextSecondary }} />}
-            size="large"
-            autoFocus
-            allowClear
-            onPressEnter={handleSearch}
-          />
-        </Form.Item>
-      </Form>
-      
-      <Row justify="center" style={{ marginTop: token.marginSM }}>
-        <Col>
-          <Button 
-            type="primary" 
-            icon={<SearchOutlined />} 
-            onClick={handleSearch}
-            loading={loading}
-            size="large"
-          >
-            查询仓库
-          </Button>
-        </Col>
-      </Row>
-
-      {loading && (
-        <div style={{ textAlign: 'center', padding: token.paddingLG }}>
-          <Spin size="large" tip={<Text type="secondary">正在查询仓库信息...</Text>} />
+  // 渲染内容区域
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div style={{ padding: token.paddingLG, textAlign: 'center' }}>
+          <Spin size="large" />
+          <Text type="secondary" style={{ display: 'block', marginTop: token.marginMD, fontSize: token.fontSizeLG }}>
+            {t('repository.last_repo.searching', '正在查询仓库信息...')}
+          </Text>
         </div>
-      )}
+      );
+    }
 
-      {!loading && searched && repository && (
-        <div style={contentStyle}>
-          <Row justify="space-between" align="middle" style={{ marginBottom: token.marginSM }}>
-            <Col>
-              <Title level={5} style={{ margin: 0, color: token.colorTextHeading }}>查询结果</Title>
-            </Col>
-            <Col>
-              <Tag color={getStatusText(repository.status).color} icon={getStatusText(repository.status).icon}>
-                {getStatusText(repository.status).text}
-              </Tag>
-            </Col>
-          </Row>
-          
-          <Descriptions 
-            bordered 
-            column={{ xs: 1, sm: 1 }} 
-            size="small"
-            labelStyle={{ backgroundColor: token.colorBgLayout, width: '25%' }}
-            contentStyle={{ backgroundColor: token.colorBgContainer }}
-          >
-            <Descriptions.Item 
-              label={<Text strong>仓库名称</Text>}
+    if (searched && !repository) {
+      return (
+        <Result
+          status="warning"
+          title={<span style={{ fontSize: token.fontSizeLG }}>{t('repository.last_repo.not_found_title', '未找到仓库信息')}</span>}
+          subTitle={<span style={{ fontSize: token.fontSize }}>{t('repository.last_repo.check_address', '请检查输入的仓库地址是否正确')}</span>}
+          icon={<ExclamationCircleOutlined style={{ color: token.colorWarning, fontSize: 64 }} />}
+          style={{ padding: token.paddingLG }}
+        />
+      );
+    }
+
+    if (searched && repository) {
+      const statusInfo = getStatusText(repository.status);
+      
+      return (
+        <Card 
+          style={{ 
+            marginTop: token.marginLG,
+            boxShadow: token.boxShadowTertiary,
+            borderRadius: token.borderRadiusLG
+          }}
+        >
+          <div style={{ 
+            padding: `${token.paddingMD}px ${token.paddingLG}px`,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <Title level={5} style={{ margin: 0, color: token.colorTextHeading }}>{t('repository.last_repo.result', '查询结果')}</Title>
+            <Tag 
+              color={statusInfo.color} 
+              icon={statusInfo.icon} 
+              style={{ 
+                padding: `${token.paddingXS}px ${token.paddingSM}px`, 
+                fontSize: token.fontSize 
+              }}
             >
-              <Text>{repository.name}</Text>
+              {statusInfo.text}
+            </Tag>
+          </div>
+          
+          <Descriptions
+            bordered
+            size="middle"
+            column={1}
+            labelStyle={{ 
+              backgroundColor: token.colorBgLayout,
+              padding: `${token.paddingSM}px ${token.paddingMD}px`,
+              width: '25%',
+              fontSize: token.fontSize
+            }}
+            contentStyle={{ 
+              padding: `${token.paddingSM}px ${token.paddingMD}px`,
+              fontSize: token.fontSize 
+            }}
+          >
+            <Descriptions.Item label={t('repository.last_repo.repo_name', '仓库名称')}>
+              <Text strong>{repository.name}</Text>
             </Descriptions.Item>
             
-            <Descriptions.Item 
-              label={<Text strong>仓库地址</Text>}
-            >
-              <Paragraph 
-                ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}
-                style={{ marginBottom: 0 }}
+            <Descriptions.Item label={t('repository.last_repo.repo_address', '仓库地址')}>
+              <Text
+                ellipsis={{ 
+                  tooltip: repository.address 
+                }}
+                style={{ maxWidth: '100%', display: 'inline-block' }}
+                copyable
               >
                 {repository.address}
-              </Paragraph>
+              </Text>
             </Descriptions.Item>
             
-            <Descriptions.Item label={<Text strong>仓库类型</Text>}>
-              <Tag icon={<GithubOutlined />} color="blue">{repository.type}</Tag>
-            </Descriptions.Item>
-            
-            <Descriptions.Item label={<Text strong>分支</Text>}>
-              <Tag icon={<BranchesOutlined />} color="cyan">{repository.branch}</Tag>
+            <Descriptions.Item label={t('repository.last_repo.repo_info', '仓库信息')}>
+              <Space size={token.marginSM}>
+                <Tag 
+                  icon={<GithubOutlined />} 
+                  color="blue" 
+                  style={{ padding: `2px ${token.paddingSM}px`, fontSize: token.fontSize }}
+                >
+                  {repository.type}
+                </Tag>
+                <Tag 
+                  icon={<BranchesOutlined />} 
+                  color="cyan"
+                  style={{ padding: `2px ${token.paddingSM}px`, fontSize: token.fontSize }}
+                >
+                  {repository.branch}
+                </Tag>
+              </Space>
             </Descriptions.Item>
             
             {repository.error && (
               <Descriptions.Item 
-                label={<Text strong type="danger">错误内容</Text>}
+                label={<Text type="danger" strong>{t('repository.last_repo.error_info', '错误信息')}</Text>}
                 contentStyle={{ backgroundColor: token.colorErrorBg }}
               >
-                <Text type="danger">{repository.error}</Text>
+                <Text type="danger" style={{ fontSize: token.fontSize }}>{repository.error}</Text>
               </Descriptions.Item>
             )}
           </Descriptions>
-        </div>
-      )}
+        </Card>
+      );
+    }
 
-      {!loading && searched && !repository && (
-        <Result
-          status="warning"
-          title="未找到仓库信息"
-          subTitle="请检查输入的仓库地址是否正确"
-          icon={<ExclamationCircleOutlined style={{ color: token.colorWarning }} />}
-          style={{ padding: token.paddingLG }}
-        />
-      )}
+    return null;
+  };
+
+  return (
+    <Modal
+      title={<Title level={4} style={{ margin: 0 }}>{t('repository.last_repo.title', '查询仓库')}</Title>}
+      open={open}
+      onCancel={handleCancel}
+      footer={null}
+      width={{ xs: '95%', sm: 600, md: 700 }}
+      centered
+      destroyOnClose
+      style={{ top: 20 }}
+    >
+      <Form 
+        form={form} 
+        layout="vertical"
+        size="large"
+        style={{ marginBottom: token.marginMD }}
+      >
+        <Form.Item
+          name="address"
+          label={<Text strong style={{ fontSize: token.fontSizeLG }}>{t('repository.last_repo.address_label', '仓库地址')}</Text>}
+          rules={[{ required: true, message: t('repository.last_repo.address_required', '请输入仓库地址') }]}
+        >
+          <Input 
+            placeholder={t('repository.last_repo.address_placeholder', '请输入您之前提交过的仓库地址')}
+            prefix={<LinkOutlined style={{ color: token.colorTextSecondary }} />}
+            allowClear
+          />
+        </Form.Item>
+        
+        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+          <Space>
+            <Button 
+              size="large"
+              onClick={handleCancel}
+            >
+              {t('repository.form.cancel', '取消')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              size="large"
+              onClick={handleSearch}
+              loading={loading}
+            >
+              {t('repository.last_repo.search', '查询')}
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
+      
+      {renderContent()}
     </Modal>
   );
 };
