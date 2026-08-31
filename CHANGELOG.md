@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.0.6 - 2026-08-31
+
+### Added
+- Added admin batch regenerate for repository documents.
+- Added cluster-wide configurable wiki generation concurrency with database slots and instance heartbeats (default concurrency is 1).
+- Added homepage server-side rendering with a 10-second cache so the first paint no longer waits on a client repository-list request.
+- Added broader default wiki languages (Traditional Chinese, Spanish, French, German, Portuguese, Polish, Russian, Arabic) and made `WIKI_LANGUAGES` take effect.
+- Added OrcaRouter as a built-in AI provider preset.
+- Added shareable recommendation time-window filters and trending scores.
+- Added a default 1-hour sitemap cache that serves a stale map while refreshing in the background.
+
+### Changed
+- Allowed administrators to regenerate any repository, not only ones they own.
+- Switched the repository explorer tree to popover navigation and optimized sitemap generation with concurrent default-tree fetches while excluding branch language variants.
+- Updated project docs for the current .NET 10 / Microsoft.Agents.AI stack, ZIP and local-directory import, and background workers.
+- Removed obsolete standalone database query tools.
+
+### Fixed
+- Replaced the chat MCP wrapper with a real MCP client so provider tools speak Streamable HTTP / JSON-RPC.
+- Fixed distributed wiki generation lock assignment across multiple instances.
+- Normalized LLM Mermaid before persistence and surfaced render errors before falling back to a code block.
+- Stopped retrying failed mind-map records and recovered orphaned Processing jobs.
+- Cleared nested DocCatalog parents before repository delete.
+- Coerced null tool-call arguments to an empty JSON object.
+- Bound the GitHub App installation department foreign key to the navigation property.
+- Fixed the wiki language selector TypeScript types, Star History chart, and Aliyun ACR image pushes by disabling Buildx provenance and SBOM.
+
 ## v2.0.5 - 2026-08-12
 
 ### Added
