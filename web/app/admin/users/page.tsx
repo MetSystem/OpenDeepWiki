@@ -1,339 +1,582 @@
-'use client'
-import { Card, Table, Button, Input, Space, Tag, Dropdown, Modal, Form, Select, Switch, message } from 'antd';
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  UserOutlined,
-  SearchOutlined,
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  MoreOutlined
-} from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
-import { useState, useEffect } from 'react';
-import { getUserList, createUser, updateUser, deleteUser, UserInfo, CreateUserRequest, UpdateUserRequest } from '../../services/userService';
+  Check,
+  ChevronDown,
+  Key,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Shield,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useLocale } from "next-intl";
 
-export default function UsersPage() {
-  const [searchText, setSearchText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<UserInfo[]>([]);
-  const [total, setTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
-  const [form] = Form.useForm();
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PageHeader } from "@/components/admin/page-header";
+import { DataTableShell } from "@/components/admin/data-table";
+import { TablePagination } from "@/components/admin/table-pagination";
+import { StatusBadge } from "@/components/admin/status-badge";
+import {
+  getUsers,
+  getRoles,
+  createUser,
+  deleteUser,
+  updateUserStatus,
+  updateUserRoles,
+  resetUserPassword,
+  AdminUser,
+  AdminRole,
+  UserListResponse,
+} from "@/lib/admin-api";
+import { useTranslations } from "@/hooks/use-translations";
 
-  // 加载用户数据
-  const loadUsers = async (page = currentPage, size = pageSize, keyword = searchText) => {
+const SEARCH_DEBOUNCE_MS = 400;
+
+export default function AdminUsersPage() {
+  const [data, setData] = useState<UserListResponse | null>(null);
+  const t = useTranslations();
+  const locale = useLocale();
+  const dateLocale = locale === "zh" ? "zh-CN" : locale;
+  const [roles, setRoles] = useState<AdminRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showRolesDialog, setShowRolesDialog] = useState<AdminUser | null>(null);
+  const [showPasswordDialog, setShowPasswordDialog] = useState<AdminUser | null>(null);
+
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [newPassword, setNewPassword] = useState("");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await getUserList(page, size, keyword);
-      if (response.code === 200) {
-        setUsers(response.data.items);
-        setTotal(response.data.total);
-      } else {
-        message.error(response.message || '获取用户列表失败');
-      }
+      const [usersResult, rolesResult] = await Promise.all([
+        getUsers(
+          page,
+          pageSize,
+          search || undefined,
+          roleFilter === "all" ? undefined : roleFilter
+        ),
+        getRoles(),
+      ]);
+      setData(usersResult);
+      setRoles(rolesResult);
     } catch (error) {
-      console.error('加载用户数据失败:', error);
-      message.error('加载用户数据失败');
+      console.error("Failed to fetch users:", error);
+      toast.error(t("admin.toast.fetchUserFailed"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, search, roleFilter, t]);
 
-  // 初始加载
   useEffect(() => {
-    loadUsers();
-  }, []);
+    fetchData();
+  }, [fetchData]);
 
-  // 处理搜索
-  const handleSearch = () => {
-    setCurrentPage(1); // 重置到第一页
-    loadUsers(1, pageSize, searchText);
+  const handleSearchInput = (value: string) => {
+    setSearchInput(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setPage(1);
+      setSearch(value.trim());
+    }, SEARCH_DEBOUNCE_MS);
   };
 
-  // 处理分页变化
-  const handleTableChange = (pagination: any) => {
-    setCurrentPage(pagination.current);
-    setPageSize(pagination.pageSize);
-    loadUsers(pagination.current, pagination.pageSize, searchText);
-  };
-
-  // 处理用户操作（编辑、删除等）
-  const handleUserAction = async (action: string, user: UserInfo) => {
-    if (action === 'edit') {
-      setCurrentUser(user);
-      form.setFieldsValue({
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        status: user.role !== 'inactive', // 假设inactive角色表示禁用状态
-      });
-      setIsModalOpen(true);
-    } else if (action === 'delete') {
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除用户 ${user.name} 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            const response = await deleteUser(user.id);
-            if (response.code === 200 && response.data) {
-              message.success('用户删除成功');
-              loadUsers(); // 重新加载用户列表
-            } else {
-              message.error(response.message || '删除用户失败');
-            }
-          } catch (error) {
-            console.error('删除用户失败:', error);
-            message.error('删除用户失败');
-          }
-        },
-      });
+  const handleCreate = async () => {
+    if (!newUser.name || !newUser.email || !newUser.password) {
+      toast.error(t("admin.users.fillComplete"));
+      return;
+    }
+    try {
+      await createUser(newUser);
+      toast.success(t("admin.toast.createSuccess"));
+      setShowCreateDialog(false);
+      setNewUser({ name: "", email: "", password: "" });
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.createFailed"));
     }
   };
 
-  // 处理表单提交（创建/更新用户）
-  const handleFormSubmit = () => {
-    form.validateFields().then(async (values) => {
-      try {
-        if (currentUser) {
-          // 更新用户
-          const updateData: UpdateUserRequest = {
-            name: values.name,
-            email: values.email,
-            role: values.role,
-            password: values.password, // 如果没有输入密码，会是undefined
-          };
-
-          const response = await updateUser(currentUser.id, updateData);
-          if (response.code === 200) {
-            message.success('用户更新成功');
-            setIsModalOpen(false);
-            loadUsers(); // 重新加载用户列表
-          } else {
-            message.error(response.message || '更新用户失败');
-          }
-        } else {
-          // 创建用户
-          const createData: CreateUserRequest = {
-            name: values.name,
-            email: values.email,
-            password: values.password,
-            role: values.role,
-          };
-
-          const { data } = await createUser(createData);
-          if (data.code === 200) {
-            message.success('用户创建成功');
-            setIsModalOpen(false);
-            loadUsers(); // 重新加载用户列表
-          } else {
-            message.error(data.message || '创建用户失败');
-          }
-        }
-      } catch (error) {
-        console.error('提交表单失败:', error);
-        message.error('操作失败，请重试');
-      }
-    });
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteUser(deleteId);
+      toast.success(t("admin.toast.deleteSuccess"));
+      setDeleteId(null);
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.deleteFailed"));
+    }
   };
 
-  // 创建新用户
-  const handleAddUser = () => {
-    setCurrentUser(null);
-    form.resetFields();
-    setIsModalOpen(true);
+  const handleStatusChange = async (
+    id: string,
+    newStatus: number,
+    currentStatus?: number
+  ) => {
+    if (currentStatus === newStatus) return;
+    setStatusUpdatingId(id);
+    try {
+      await updateUserStatus(id, newStatus);
+      toast.success(t("admin.toast.statusUpdateSuccess"));
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.statusUpdateFailed"));
+    } finally {
+      setStatusUpdatingId((prev) => (prev === id ? null : prev));
+    }
   };
 
-  // 表格列定义
-  const columns: ColumnsType<UserInfo> = [
-    {
-      title: '用户名',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text) => <a>{text}</a>,
-    },
-    {
-      title: '邮箱',
-      dataIndex: 'email',
-      key: 'email',
-    },
-    {
-      title: '角色',
-      dataIndex: 'role',
-      key: 'role',
-      render: (role) => {
-        let color = 'blue';
-        let text = '用户';
+  const handleRolesUpdate = async () => {
+    if (!showRolesDialog) return;
+    try {
+      await updateUserRoles(showRolesDialog.id, selectedRoles);
+      toast.success(t("admin.toast.roleUpdateSuccess"));
+      setShowRolesDialog(null);
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.roleUpdateFailed"));
+    }
+  };
 
-        if (role === 'admin') {
-          color = 'red';
-          text = '管理员';
-        } else if (role === 'editor') {
-          color = 'green';
-          text = '编辑者';
-        }
+  const handlePasswordReset = async () => {
+    if (!showPasswordDialog || !newPassword) return;
+    try {
+      await resetUserPassword(showPasswordDialog.id, newPassword);
+      toast.success(t("admin.toast.passwordResetSuccess"));
+      setShowPasswordDialog(null);
+      setNewPassword("");
+    } catch {
+      toast.error(t("admin.toast.passwordResetFailed"));
+    }
+  };
 
-        return <Tag color={color}>{text}</Tag>;
-      },
-    },
-    {
-      title: '最后登录',
-      dataIndex: 'lastLoginAt',
-      key: 'lastLoginAt',
-      render: (text) => text ? new Date(text).toLocaleString() : '从未登录',
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (text) => new Date(text).toLocaleString(),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Dropdown
-          menu={{
-            items: [
-              {
-                key: 'edit',
-                icon: <EditOutlined />,
-                label: '编辑',
-                onClick: () => handleUserAction('edit', record),
-              },
-              {
-                type: 'divider',
-              },
-              {
-                key: 'delete',
-                icon: <DeleteOutlined />,
-                label: '删除',
-                danger: true,
-                onClick: () => handleUserAction('delete', record),
-              },
-            ],
-          }}
+  const openRolesDialog = (user: AdminUser) => {
+    setSelectedRoles(user.roles || []);
+    setShowRolesDialog(user);
+  };
+
+  const userStatusLabels: Record<number, string> = {
+    1: t("admin.users.normal"),
+    0: t("admin.users.disabled"),
+  };
+
+  const isEmpty = !loading && (data?.items.length ?? 0) === 0;
+
+  const toolbar = (
+    <>
+      <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder={t("admin.users.searchPlaceholder")}
+          value={searchInput}
+          onChange={(e) => handleSearchInput(e.target.value)}
+          className="h-9 pl-8"
+        />
+      </div>
+      <Select
+        value={roleFilter}
+        onValueChange={(v) => {
+          setRoleFilter(v);
+          setPage(1);
+        }}
+      >
+        <SelectTrigger size="sm" className="h-9 w-[160px]">
+          <SlidersHorizontal className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
+          <SelectValue placeholder={t("admin.users.filterRole")} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{t("admin.users.allRoles")}</SelectItem>
+          {roles.map((role) => (
+            <SelectItem key={role.id} value={role.id}>
+              {role.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <div className="ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={fetchData}
+          disabled={loading}
+          title={t("admin.common.refresh")}
         >
-          <Button type="text" icon={<MoreOutlined />} />
-        </Dropdown>
-      ),
-    },
-  ];
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+    </>
+  );
 
   return (
-    <div>
-      <h2 style={{ marginBottom: 24 }}>用户管理</h2>
-
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Space>
-            <Input
-              placeholder="搜索用户名或邮箱"
-              prefix={<SearchOutlined />}
-              style={{ width: 300 }}
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              onPressEnter={handleSearch}
-              allowClear
-            />
-            <Button type="primary" onClick={handleSearch}>搜索</Button>
-          </Space>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAddUser}
-          >
-            添加用户
+    <div className="space-y-5">
+      <PageHeader
+        title={t("admin.users.title")}
+        actions={
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            {t("admin.users.createUser")}
           </Button>
-        </div>
+        }
+      />
 
-        <Table
-          columns={columns}
-          dataSource={users}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize: pageSize,
-            total: total,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条记录`,
-          }}
-          onChange={handleTableChange}
-        />
-      </Card>
-
-      {/* 用户编辑/创建表单 */}
-      <Modal
-        title={currentUser ? "编辑用户" : "添加用户"}
-        open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
-        onOk={handleFormSubmit}
-        okText={currentUser ? "保存" : "创建"}
-        cancelText="取消"
+      <DataTableShell
+        toolbar={toolbar}
+        loading={loading}
+        empty={isEmpty}
+        emptyTitle={t("admin.shared.noData")}
+        footer={
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
+        }
       >
-        <Form
-          form={form}
-          layout="vertical"
-        >
-          <Form.Item
-            name="name"
-            label="用户名"
-            rules={[{ required: true, message: '请输入用户名' }]}
-          >
-            <Input prefix={<UserOutlined />} placeholder="用户名" />
-          </Form.Item>
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="pl-4">{t("admin.users.user")}</TableHead>
+              <TableHead>{t("admin.users.email")}</TableHead>
+              <TableHead>{t("admin.users.role")}</TableHead>
+              <TableHead>{t("admin.users.status")}</TableHead>
+              <TableHead>{t("admin.users.createdAt")}</TableHead>
+              <TableHead className="pr-4 text-right">
+                {t("admin.users.operations")}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data?.items.map((user) => (
+              <TableRow key={user.id}>
+                <TableCell className="pl-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={user.avatar} />
+                      <AvatarFallback className="text-xs">
+                        {user.name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium">{user.name}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {user.email || "-"}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {user.roles?.map((role) => (
+                      <Badge
+                        key={role}
+                        variant="secondary"
+                        className="text-xs font-normal"
+                      >
+                        {role}
+                      </Badge>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={statusUpdatingId === user.id}
+                        className="group inline-flex items-center gap-1 rounded-md outline-none disabled:opacity-60"
+                      >
+                        <StatusBadge
+                          tone={user.status === 1 ? "success" : "danger"}
+                          label={userStatusLabels[user.status]}
+                        />
+                        {statusUpdatingId === user.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-[150px]">
+                      {[1, 0].map((statusValue) => (
+                        <DropdownMenuItem
+                          key={statusValue}
+                          disabled={user.status === statusValue}
+                          onClick={() =>
+                            handleStatusChange(user.id, statusValue, user.status)
+                          }
+                          className="justify-between"
+                        >
+                          <StatusBadge
+                            tone={statusValue === 1 ? "success" : "danger"}
+                            label={userStatusLabels[statusValue]}
+                            className="border-transparent bg-transparent px-0"
+                          />
+                          {user.status === statusValue ? (
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                  {new Date(user.createdAt).toLocaleDateString(dateLocale)}
+                </TableCell>
+                <TableCell className="pr-4 text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title={t("admin.users.assignRoles")}
+                      onClick={() => openRolesDialog(user)}
+                    >
+                      <Shield className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title={t("admin.users.resetPassword")}
+                      onClick={() => setShowPasswordDialog(user)}
+                    >
+                      <Key className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title={t("admin.common.delete")}
+                      onClick={() => setDeleteId(user.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </DataTableShell>
 
-          <Form.Item
-            name="email"
-            label="邮箱"
-            rules={[
-              { required: true, message: '请输入邮箱' },
-              { type: 'email', message: '请输入有效的邮箱' }
-            ]}
-          >
-            <Input placeholder="邮箱地址" />
-          </Form.Item>
+      {/* 新增用户对话框 */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("admin.users.createUser")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                {t("admin.users.username")} *
+              </label>
+              <Input
+                value={newUser.name}
+                onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                placeholder={t("admin.users.enterUsername")}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                {t("admin.users.email")} *
+              </label>
+              <Input
+                type="email"
+                value={newUser.email}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, email: e.target.value })
+                }
+                placeholder={t("admin.users.enterEmail")}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                {t("admin.users.password")} *
+              </label>
+              <Input
+                type="password"
+                value={newUser.password}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, password: e.target.value })
+                }
+                placeholder={t("admin.users.enterPassword")}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              {t("admin.common.cancel")}
+            </Button>
+            <Button onClick={handleCreate}>{t("admin.common.create")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {!currentUser && (
-            <Form.Item
-              name="password"
-              label="密码"
-              rules={[{ required: true, message: '请输入密码' }]}
+      {/* 角色分配对话框 */}
+      <Dialog
+        open={!!showRolesDialog}
+        onOpenChange={() => setShowRolesDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("admin.users.assignRoles")} - {showRolesDialog?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {roles.map((role) => (
+              <div key={role.id} className="flex items-center gap-2">
+                <Checkbox
+                  id={role.id}
+                  checked={selectedRoles.includes(role.name)}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      setSelectedRoles([...selectedRoles, role.name]);
+                    } else {
+                      setSelectedRoles(
+                        selectedRoles.filter((r) => r !== role.name)
+                      );
+                    }
+                  }}
+                />
+                <label htmlFor={role.id} className="text-sm">
+                  {role.name}
+                  {role.description && (
+                    <span className="ml-2 text-muted-foreground">
+                      ({role.description})
+                    </span>
+                  )}
+                </label>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRolesDialog(null)}>
+              {t("admin.common.cancel")}
+            </Button>
+            <Button onClick={handleRolesUpdate}>{t("admin.common.save")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 重置密码对话框 */}
+      <Dialog
+        open={!!showPasswordDialog}
+        onOpenChange={() => setShowPasswordDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("admin.users.resetPassword")} - {showPasswordDialog?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              {t("admin.users.newPassword")}
+            </label>
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder={t("admin.users.enterNewPassword")}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowPasswordDialog(null)}
             >
-              <Input.Password placeholder="密码" />
-            </Form.Item>
-          )}
+              {t("admin.common.cancel")}
+            </Button>
+            <Button onClick={handlePasswordReset}>
+              {t("admin.users.confirmReset")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {currentUser && (
-            <Form.Item
-              name="password"
-              label="密码"
-              help="如需修改密码请输入新密码，否则留空"
+      {/* 删除确认对话框 */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("admin.common.confirmDelete")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("admin.users.deleteWarning")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("admin.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700"
             >
-              <Input.Password placeholder="新密码（可选）" />
-            </Form.Item>
-          )}
-
-          <Form.Item
-            name="role"
-            label="角色"
-            rules={[{ required: true, message: '请选择角色' }]}
-            initialValue="user"
-          >
-            <Select>
-              <Select.Option value="admin">管理员</Select.Option>
-              <Select.Option value="editor">编辑者</Select.Option>
-              <Select.Option value="user">普通用户</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Modal>
+              {t("admin.common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
-} 
+}

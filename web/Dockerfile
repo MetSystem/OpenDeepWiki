@@ -1,56 +1,43 @@
-FROM --platform=$BUILDPLATFORM node:23-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
-RUN apk add --no-cache libc6-compat
+# 依赖安装阶段
+FROM node:22-bookworm AS deps
 WORKDIR /app
 
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
-RUN \
-  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
-  elif [ -f package-lock.json ]; then npm ci; \
-  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
-  else echo "Lockfile not found." && exit 1; \
-  fi
+# 安装依赖
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm install --prefer-offline; else npm install; fi
 
-# Rebuild the source code only when needed
-FROM base AS builder
+# 构建阶段
+FROM node:22-bookworm AS builder
 WORKDIR /app
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN \
-  if [ -f yarn.lock ]; then yarn run build; \
-  elif [ -f package-lock.json ]; then npm run build; \
-  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm run build; \
-  else echo "Lockfile not found." && exit 1; \
-  fi
+# 构建时不需要 API_PROXY_URL，运行时通过环境变量动态获取
+RUN npm run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+# 生产运行阶段
+FROM node:22-bookworm AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# 创建非 root 用户
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 -g nodejs nextjs
 
-# 安装 sed 工具用于文本替换
-RUN apk add --no-cache sed
-
+# 复制构建产物
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# 复制启动脚本并设置权限
-COPY --chown=nextjs:nodejs start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+# 不复制 .env 文件，API_PROXY_URL 通过运行时环境变量传入
 
 USER nextjs
 
 EXPOSE 3000
+
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# 使用启动脚本而不是直接启动 server.js
-CMD ["/app/start.sh"]
+CMD ["node", "server.js"]

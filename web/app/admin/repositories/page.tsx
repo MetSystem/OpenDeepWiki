@@ -1,464 +1,894 @@
-'use client'
-import { Card, Table, Button, Input, Space, Tag, Dropdown, Modal, Form, Select, Badge, Avatar, message } from 'antd';
+"use client";
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import Link from "next/link";
 import {
-  SearchOutlined,
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  EyeOutlined,
-  StarOutlined,
-  MoreOutlined,
-  FolderOutlined,
-  ClockCircleOutlined,
-  UserOutlined,
-  ReloadOutlined
-} from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
-import { useState, useEffect } from 'react';
-import { getRepositoryList, createGitRepository, updateRepository, deleteRepository, resetRepository, RepositoryInfo, CreateGitRepositoryRequest, UpdateRepositoryRequest } from '../../services/repositoryService';
-import Link from 'next/link';
-import { Tooltip } from '@lobehub/ui';
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Eye,
+  ExternalLink,
+  GitFork,
+  Globe,
+  Loader2,
+  Lock,
+  MoreHorizontal,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  Star,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useLocale } from "next-intl";
 
-// 仓库状态映射
-const statusMap = {
-  0: { text: '待处理', color: 'orange' },
-  1: { text: '处理中', color: 'blue' },
-  2: { text: '已完成', color: 'green' },
-  3: { text: '已取消', color: 'default' },
-  4: { text: '未授权', color: 'red' },
-  99: { text: '已失败', color: 'red' }
-};
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PageHeader } from "@/components/admin/page-header";
+import { DataTableShell } from "@/components/admin/data-table";
+import { TablePagination } from "@/components/admin/table-pagination";
+import {
+  RepoStatusBadge,
+  REPO_STATUS_TONE,
+  StatusBadge,
+} from "@/components/admin/status-badge";
+import {
+  getRepositories,
+  deleteRepository,
+  updateRepositoryStatus,
+  syncRepositoryStats,
+  batchSyncRepositoryStats,
+  batchRegenerateRepositories,
+  batchDeleteRepositories,
+  AdminRepository,
+  RepositoryListResponse,
+} from "@/lib/admin-api";
+import {
+  getRepositorySourceTypeLabelKey,
+  isGitRepositorySource,
+} from "@/lib/repository-source";
+import { RepositorySubmitForm } from "@/components/repo/repository-submit-form";
+import { useTranslations } from "@/hooks/use-translations";
 
-export default function RepositoriesPage() {
-  const [searchText, setSearchText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [repositories, setRepositories] = useState<RepositoryInfo[]>([]);
-  const [total, setTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [currentRepository, setCurrentRepository] = useState<RepositoryInfo | null>(null);
-  const [form] = Form.useForm();
-  const [editForm] = Form.useForm();
+const SEARCH_DEBOUNCE_MS = 400;
 
-  // 加载仓库数据
-  const loadRepositories = async (page = currentPage, size = pageSize, keyword = searchText) => {
+export default function AdminRepositoriesPage() {
+  const [data, setData] = useState<RepositoryListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [selectedRepo, setSelectedRepo] = useState<AdminRepository | null>(
+    null
+  );
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [batchSyncing, setBatchSyncing] = useState(false);
+  const [batchRegenerating, setBatchRegenerating] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [showBatchRegenerateConfirm, setShowBatchRegenerateConfirm] = useState(false);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const t = useTranslations();
+  const locale = useLocale();
+  const dateLocale = locale === "zh" ? "zh-CN" : locale;
+
+  const statusOptions = [
+    { value: "all", label: t("admin.repositories.allStatus") },
+    { value: "0", label: t("admin.repositories.pending") },
+    { value: "1", label: t("admin.repositories.processing") },
+    { value: "2", label: t("admin.repositories.completed") },
+    { value: "3", label: t("admin.repositories.failed") },
+  ];
+
+  const statusLabels: Record<number, string> = useMemo(
+    () => ({
+      0: t("admin.repositories.pending"),
+      1: t("admin.repositories.processing"),
+      2: t("admin.repositories.completed"),
+      3: t("admin.repositories.failed"),
+    }),
+    [t]
+  );
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const { code, data } = await getRepositoryList(page, size, keyword);
-      console.log(data);
-      if (code === 200) {
-        setRepositories(data.items);
-        setTotal(data.total);
-      } else {
-        message.error('获取仓库列表失败');
-      }
+      const result = await getRepositories(
+        page,
+        pageSize,
+        search || undefined,
+        status === "all" ? undefined : parseInt(status)
+      );
+      setData(result);
+      setSelectedIds(new Set());
     } catch (error) {
-      console.error('加载仓库数据失败:', error);
-      message.error('加载仓库数据失败');
+      console.error("Failed to fetch repositories:", error);
+      toast.error(t("admin.toast.fetchRepoFailed"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, search, status, t]);
 
-  // 初始加载
   useEffect(() => {
-    loadRepositories();
-  }, []);
+    fetchData();
+  }, [fetchData]);
 
-  // 处理搜索
-  const handleSearch = () => {
-    setCurrentPage(1); // 重置到第一页
-    loadRepositories(1, pageSize, searchText);
+  // Debounced search: reset to page 1 when the keyword settles.
+  const handleSearchInput = (value: string) => {
+    setSearchInput(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setPage(1);
+      setSearch(value.trim());
+    }, SEARCH_DEBOUNCE_MS);
   };
 
-  // 处理分页变化
-  const handleTableChange = (pagination: any) => {
-    setCurrentPage(pagination.current);
-    setPageSize(pagination.pageSize);
-    loadRepositories(pagination.current, pagination.pageSize, searchText);
-  };
+  const handleSubmitSuccess = useCallback(() => {
+    setIsSubmitDialogOpen(false);
+    fetchData();
+  }, [fetchData]);
 
-  // 处理仓库操作（编辑、删除等）
-  const handleRepositoryAction = async (action: string, repository: RepositoryInfo) => {
-    if (action === 'edit') {
-      setCurrentRepository(repository);
-      editForm.setFieldsValue({
-        description: repository.description,
-        isRecommended: repository.isRecommended,
-        prompt: repository.prompt,
-      });
-      setIsEditModalOpen(true);
-    } else if (action === 'delete') {
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除仓库 ${repository.organizationName}/${repository.name} 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            const response = await deleteRepository(repository.id);
-            if (response.code === 200 && response.data) {
-              message.success('仓库删除成功');
-              loadRepositories(); // 重新加载仓库列表
-            } else {
-              message.error(response.message || '删除仓库失败');
-            }
-          } catch (error) {
-            console.error('删除仓库失败:', error);
-            message.error('删除仓库失败');
-          }
-        },
-      });
-    } else if (action === 'reprocess') {
-      Modal.confirm({
-        title: '确认重新处理',
-        content: `确定要重新处理仓库 ${repository.organizationName}/${repository.name} 吗？`,
-        okText: '确定',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            const response = await resetRepository(repository.id);
-            if (response.code === 200 && response.data) {
-              message.success('已提交重新处理请求');
-              loadRepositories(); // 重新加载仓库列表
-            } else {
-              message.error(response.message || '提交重新处理请求失败');
-            }
-          } catch (error) {
-            console.error('重新处理仓库失败:', error);
-            message.error('重新处理仓库失败');
-          }
-        },
-      });
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteRepository(deleteId);
+      toast.success(t("admin.toast.deleteSuccess"));
+      setDeleteId(null);
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.deleteFailed"));
     }
   };
 
-  // 处理创建仓库表单提交
-  const handleFormSubmit = () => {
-    form.validateFields().then(async (values) => {
-      try {
-        // 创建Git仓库
-        const createData: CreateGitRepositoryRequest = {
-          address: values.address,
-          branch: values.branch,
-          gitUserName: values.enableGitAuth ? values.gitUserName : undefined,
-          gitPassword: values.enableGitAuth ? values.gitPassword : undefined,
-        };
+  const handleStatusChange = async (
+    id: string,
+    newStatus: number,
+    currentStatus?: number
+  ) => {
+    if (currentStatus === newStatus) return;
+    setStatusUpdatingId(id);
+    try {
+      await updateRepositoryStatus(id, newStatus);
+      toast.success(t("admin.toast.statusUpdateSuccess"));
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.statusUpdateFailed"));
+    } finally {
+      setStatusUpdatingId((prev) => (prev === id ? null : prev));
+    }
+  };
 
-        const response = await createGitRepository(createData);
-        if (response.code === 200) {
-          message.success('仓库创建成功');
-          setIsModalOpen(false);
-          loadRepositories(); // 重新加载仓库列表
-        } else {
-          message.error(response.message || '创建仓库失败');
-        }
-      } catch (error) {
-        console.error('提交表单失败:', error);
-        message.error('操作失败，请重试');
+  const handleSyncStats = async (id: string) => {
+    setSyncing(id);
+    try {
+      const result = await syncRepositoryStats(id);
+      if (result.success) {
+        toast.success(
+          `${t("admin.toast.syncSuccess")}: ${t("admin.repositories.star")} ${result.starCount}, ${t("admin.repositories.fork")} ${result.forkCount}`
+        );
+        fetchData();
+      } else {
+        toast.error(result.message || t("admin.toast.syncFailed"));
       }
-    });
+    } catch {
+      toast.error(t("admin.toast.syncFailed"));
+    } finally {
+      setSyncing(null);
+    }
   };
 
-  // 处理编辑仓库表单提交
-  const handleEditFormSubmit = () => {
-    if (!currentRepository) return;
+  const selectedGitRepoIds = useMemo(() => {
+    const items = data?.items ?? [];
+    return items
+      .filter(
+        (item) =>
+          selectedIds.has(item.id) &&
+          isGitRepositorySource(item.sourceType, item.sourceTypeName)
+      )
+      .map((item) => item.id);
+  }, [data, selectedIds]);
 
-    editForm.validateFields().then(async (values) => {
-      try {
-        // 更新仓库
-        const updateData: UpdateRepositoryRequest = {
-          description: values.description,
-          isRecommended: values.isRecommended,
-          prompt: values.prompt,
-        };
-
-        const response = await updateRepository(currentRepository.id, updateData);
-        if (response.code === 200) {
-          message.success('仓库更新成功');
-          setIsEditModalOpen(false);
-          loadRepositories(); // 重新加载仓库列表
-        } else {
-          message.error(response.message || '更新仓库失败');
-        }
-      } catch (error) {
-        console.error('提交表单失败:', error);
-        message.error('操作失败，请重试');
+  const handleBatchSync = async () => {
+    if (selectedIds.size === 0) {
+      toast.warning(t("admin.repositories.selectFirst"));
+      return;
+    }
+    if (selectedGitRepoIds.length === 0) {
+      toast.warning(t("admin.repositories.syncStatsNotSupported"));
+      return;
+    }
+    setBatchSyncing(true);
+    try {
+      const result = await batchSyncRepositoryStats(selectedGitRepoIds);
+      if (selectedGitRepoIds.length < selectedIds.size) {
+        toast.warning(
+          t("admin.repositories.batchSyncSkippedNonGit", {
+            count: selectedIds.size - selectedGitRepoIds.length,
+          })
+        );
       }
-    });
+      toast.success(
+        t("admin.repositories.batchSyncResult", {
+          success: result.successCount,
+          failed: result.failedCount,
+        })
+      );
+      await fetchData();
+    } catch {
+      toast.error(t("admin.toast.syncFailed"));
+    } finally {
+      setBatchSyncing(false);
+    }
   };
 
-  // 创建新仓库
-  const handleAddRepository = () => {
-    form.resetFields();
-    setIsModalOpen(true);
+  const handleBatchRegenerate = async () => {
+    if (selectedIds.size === 0) return;
+
+    setBatchRegenerating(true);
+    try {
+      const result = await batchRegenerateRepositories(Array.from(selectedIds));
+      const failedItems = result.results.filter((item) => !item.success);
+      const resultMessage = t("admin.repositories.batchRegenerateResult", {
+        success: result.successCount,
+        failed: result.failedCount,
+      });
+
+      if (failedItems.length > 0) {
+        console.warn("Some repositories failed to regenerate:", failedItems);
+        toast.warning(resultMessage);
+      } else {
+        toast.success(resultMessage);
+      }
+
+      setShowBatchRegenerateConfirm(false);
+      await fetchData();
+    } catch (error) {
+      console.error("Failed to regenerate repositories:", error);
+      toast.error(t("admin.repositories.batchRegenerateFailed"));
+    } finally {
+      setBatchRegenerating(false);
+    }
   };
 
-  // 表格列定义
-  const columns: ColumnsType<RepositoryInfo> = [
-    {
-      title: '仓库',
-      key: 'name',
-      width: 250,
-      render: (_, record) => (
-        <Space>
-          <Avatar icon={<FolderOutlined />} style={{ backgroundColor: '#87d068' }} />
-          <Tooltip title={record.address}>
-            <Link
-              style={{
-                // 隐藏多行
-                display: '-webkit-box',
-                WebkitLineClamp: 1,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                width: '120px',
-              }}
-              href={`/admin/repositories/${record.id}`}>
-              {record.address}
-            </Link>
-          </Tooltip>
-          {record.isRecommended && <Tag color="gold"><StarOutlined /> 推荐</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => {
-        const { text, color } = statusMap[status as keyof typeof statusMap] || { text: '未知', color: 'default' };
-        return <Badge status={color as any} text={text} />;
-      },
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => <Tag>{type || 'git'}</Tag>,
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (text) => (
-        <Space>
-          <ClockCircleOutlined />
-          {new Date(text).toLocaleString()}
-        </Space>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Dropdown
-          menu={{
-            items: [
-              {
-                key: 'view',
-                icon: <EyeOutlined />,
-                label: '查看',
-                onClick: () => window.open(`/admin/repositories/${record.id}`, '_blank'),
-              },
-              {
-                key: 'edit',
-                icon: <EditOutlined />,
-                label: '编辑',
-                onClick: () => handleRepositoryAction('edit', record),
-              },
-              {
-                key: 'reprocess',
-                icon: <ReloadOutlined />,
-                label: '重新处理',
-                onClick: () => handleRepositoryAction('reprocess', record),
-              },
-              {
-                type: 'divider',
-              },
-              {
-                key: 'delete',
-                icon: <DeleteOutlined />,
-                label: '删除',
-                danger: true,
-                onClick: () => handleRepositoryAction('delete', record),
-              },
-            ],
-          }}
-        >
-          <Button type="text" icon={<MoreOutlined />} />
-        </Dropdown>
-      ),
-    },
-  ];
+  const handleBatchDelete = async () => {
+    setBatchDeleting(true);
+    try {
+      const result = await batchDeleteRepositories(Array.from(selectedIds));
+      toast.success(
+        t("admin.repositories.batchDeleteResult", {
+          success: result.successCount,
+          failed: result.failedCount,
+        })
+      );
+      setShowBatchDeleteConfirm(false);
+      fetchData();
+    } catch {
+      toast.error(t("admin.toast.deleteFailed"));
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
 
-  return (
-    <div>
-      <h2 style={{ marginBottom: 24 }}>仓库管理</h2>
+  const toggleSelectAll = () => {
+    if (!data) return;
+    if (selectedIds.size === data.items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(data.items.map((r) => r.id)));
+    }
+  };
 
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Space>
-            <Input
-              placeholder="搜索仓库名称或地址"
-              prefix={<SearchOutlined />}
-              style={{ width: 300 }}
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              onPressEnter={handleSearch}
-              allowClear
-            />
-            <Button type="primary" onClick={handleSearch}>搜索</Button>
-          </Space>
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const allSelected =
+    data && data.items.length > 0 && selectedIds.size === data.items.length;
+  const someSelected = selectedIds.size > 0 && !allSelected;
+  const batchOperationInProgress =
+    batchSyncing || batchRegenerating || batchDeleting;
+  const isEmpty = !loading && (data?.items.length ?? 0) === 0;
+
+  const toolbar = (
+    <>
+      <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder={t("admin.repositories.searchPlaceholder")}
+          value={searchInput}
+          onChange={(e) => handleSearchInput(e.target.value)}
+          className="h-9 pl-8"
+        />
+      </div>
+      <Select
+        value={status}
+        onValueChange={(v) => {
+          setStatus(v);
+          setPage(1);
+        }}
+      >
+        <SelectTrigger size="sm" className="h-9 w-[150px]">
+          <SlidersHorizontal className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {statusOptions.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5">
+          <span className="text-xs text-muted-foreground">
+            {t("admin.repositories.selectedCount", { count: selectedIds.size })}
+          </span>
           <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAddRepository}
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={handleBatchSync}
+            disabled={batchOperationInProgress}
           >
-            添加仓库
+            {batchSyncing ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+            )}
+            {t("admin.repositories.batchSync")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={() => setShowBatchRegenerateConfirm(true)}
+            disabled={batchOperationInProgress}
+          >
+            {batchRegenerating ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+            {t("admin.repositories.batchRegenerate")}
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-7"
+            onClick={() => setShowBatchDeleteConfirm(true)}
+            disabled={batchOperationInProgress}
+          >
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            {t("admin.repositories.batchDelete")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={batchOperationInProgress}
+          >
+            {t("admin.repositories.cancelSelect")}
           </Button>
         </div>
+      )}
 
-        <Table
-          columns={columns}
-          dataSource={repositories}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize: pageSize,
-            total: total,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条记录`,
-          }}
-          onChange={handleTableChange}
-        />
-      </Card>
-
-      {/* 添加仓库表单 */}
-      <Modal
-        title="添加仓库"
-        open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
-        onOk={handleFormSubmit}
-        okText="创建"
-        cancelText="取消"
-        width={600}
-      >
-        <Form
-          form={form}
-          layout="vertical"
+      <div className="ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={fetchData}
+          disabled={loading}
+          title={t("admin.common.refresh")}
         >
-          <Form.Item
-            name="address"
-            label="仓库地址"
-            rules={[{ required: true, message: '请输入Git仓库地址' }]}
-          >
-            <Input placeholder="例如: https://github.com/username/repo.git" />
-          </Form.Item>
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+    </>
+  );
 
-          <Form.Item
-            name="branch"
-            label="分支"
-            help="留空将使用默认分支"
-          >
-            <Input placeholder="例如: main, master" />
-          </Form.Item>
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title={t("admin.repositories.title")}
+        actions={
+          <Button onClick={() => setIsSubmitDialogOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            {t("home.repository.submitTitle")}
+          </Button>
+        }
+      />
 
-          <Form.Item
-            name="enableGitAuth"
-            valuePropName="checked"
-          >
-            <Select
-              placeholder="是否需要认证"
-              options={[
-                { value: true, label: '需要认证（私有仓库）' },
-                { value: false, label: '无需认证（公开仓库）' }
-              ]}
-              defaultValue={false}
-            />
-          </Form.Item>
+      <DataTableShell
+        toolbar={toolbar}
+        loading={loading}
+        empty={isEmpty}
+        emptyTitle={t("admin.repositories.noReposForFilter")}
+        footer={
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
+        }
+      >
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="w-10 pl-4">
+                <Checkbox
+                  checked={
+                    allSelected ? true : someSelected ? "indeterminate" : false
+                  }
+                  onCheckedChange={toggleSelectAll}
+                  aria-label={t("admin.common.selectAll")}
+                />
+              </TableHead>
+              <TableHead>{t("admin.repositories.repository")}</TableHead>
+              <TableHead>{t("admin.repositories.visibility")}</TableHead>
+              <TableHead>{t("admin.repositories.status")}</TableHead>
+              <TableHead>{t("admin.repositories.statistics")}</TableHead>
+              <TableHead>{t("admin.repositories.createdAt")}</TableHead>
+              <TableHead className="pr-4 text-right">
+                {t("admin.repositories.operations")}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data?.items.map((repo) => (
+              <TableRow
+                key={repo.id}
+                data-state={selectedIds.has(repo.id) ? "selected" : undefined}
+              >
+                <TableCell className="pl-4">
+                  <Checkbox
+                    checked={selectedIds.has(repo.id)}
+                    onCheckedChange={() => toggleSelect(repo.id)}
+                    aria-label={`Select ${repo.repoName}`}
+                  />
+                </TableCell>
+                <TableCell>
+                  <div className="min-w-0 max-w-md">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/admin/repositories/${repo.id}`}
+                        className="truncate font-medium underline-offset-4 hover:text-primary hover:underline"
+                        title={t("admin.repositories.manageRepo")}
+                      >
+                        {repo.orgName}/{repo.repoName}
+                      </Link>
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                      >
+                        {t(
+                          `admin.repositories.${getRepositorySourceTypeLabelKey(repo.sourceType, repo.sourceTypeName)}`
+                        )}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {repo.sourceLocation || repo.gitUrl}
+                    </p>
+                    {(repo.branchGenerationActiveCount > 0 ||
+                      repo.branchGenerationFailedCount > 0) && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {repo.branchGenerationActiveCount > 0 && (
+                          <Badge variant="secondary" className="gap-1 text-[10px]">
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            branch running {repo.branchGenerationActiveCount}
+                          </Badge>
+                        )}
+                        {repo.branchGenerationFailedCount > 0 && (
+                          <Badge variant="destructive" className="gap-1 text-[10px]">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            branch failed {repo.branchGenerationFailedCount}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {repo.isPublic ? (
+                    <span className="inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+                      <Globe className="h-3.5 w-3.5" />
+                      {t("admin.repositories.public")}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                      <Lock className="h-3.5 w-3.5" />
+                      {t("admin.repositories.private")}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={statusUpdatingId === repo.id}
+                        className="group inline-flex items-center gap-1 rounded-md outline-none disabled:opacity-60"
+                      >
+                        <RepoStatusBadge status={repo.status} />
+                        {statusUpdatingId === repo.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-[170px]">
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        {t("admin.repositories.status")}
+                      </DropdownMenuLabel>
+                      {[0, 1, 2, 3].map((statusValue) => (
+                        <DropdownMenuItem
+                          key={statusValue}
+                          disabled={repo.status === statusValue}
+                          onClick={() =>
+                            handleStatusChange(repo.id, statusValue, repo.status)
+                          }
+                          className="justify-between"
+                        >
+                          <StatusBadge
+                            tone={REPO_STATUS_TONE[statusValue]}
+                            label={statusLabels[statusValue]}
+                            className="border-transparent bg-transparent px-0"
+                          />
+                          {repo.status === statusValue ? (
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
+                    <span className="inline-flex items-center gap-1">
+                      <Star className="h-3.5 w-3.5" />
+                      {repo.starCount}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <GitFork className="h-3.5 w-3.5" />
+                      {repo.forkCount}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Eye className="h-3.5 w-3.5" />
+                      {repo.viewCount}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                  {new Date(repo.createdAt).toLocaleDateString(dateLocale)}
+                </TableCell>
+                <TableCell className="pr-4 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                    >
+                      <Link
+                        href={`/admin/repositories/${repo.id}`}
+                        title={t("admin.repositories.manageRepo")}
+                      >
+                        <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                        {t("admin.repositories.manageRepo")}
+                      </Link>
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-[180px]">
+                        <DropdownMenuItem
+                          onClick={() => setSelectedRepo(repo)}
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          {t("admin.repositories.viewDetail")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            syncing === repo.id ||
+                            !isGitRepositorySource(
+                              repo.sourceType,
+                              repo.sourceTypeName
+                            )
+                          }
+                          onClick={() => handleSyncStats(repo.id)}
+                        >
+                          {syncing === repo.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                          )}
+                          {t("admin.repositories.syncStats")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeleteId(repo.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {t("admin.common.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </DataTableShell>
 
-          <Form.Item
-            noStyle
-            shouldUpdate={(prevValues, currentValues) => prevValues.enableGitAuth !== currentValues.enableGitAuth}
-          >
-            {({ getFieldValue }) =>
-              getFieldValue('enableGitAuth') ? (
+      <Dialog open={isSubmitDialogOpen} onOpenChange={setIsSubmitDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <RepositorySubmitForm onSuccess={handleSubmitSuccess} />
+        </DialogContent>
+      </Dialog>
+
+      {/* 快速预览对话框 */}
+      <Dialog open={!!selectedRepo} onOpenChange={() => setSelectedRepo(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("admin.repositories.repoDetail")}</DialogTitle>
+          </DialogHeader>
+          {selectedRepo && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {selectedRepo.orgName}/{selectedRepo.repoName}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {selectedRepo.sourceLocation || selectedRepo.gitUrl}
+                  </p>
+                </div>
+                <RepoStatusBadge status={selectedRepo.status} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">
+                    {t("admin.repositories.sourceType")}
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {t(
+                      `admin.repositories.${getRepositorySourceTypeLabelKey(selectedRepo.sourceType, selectedRepo.sourceTypeName)}`
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">
+                    {t("admin.repositories.visibility")}
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {selectedRepo.isPublic
+                      ? t("admin.repositories.public")
+                      : t("admin.repositories.private")}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                {(
+                  [
+                    ["star", selectedRepo.starCount],
+                    ["fork", selectedRepo.forkCount],
+                    ["bookmark", selectedRepo.bookmarkCount],
+                    ["view", selectedRepo.viewCount],
+                  ] as const
+                ).map(([key, count]) => (
+                  <div key={key} className="rounded-md border p-3 text-center">
+                    <p className="text-lg font-semibold tabular-nums">
+                      {count}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(`admin.repositories.${key}`)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("admin.repositories.createdAt")}:{" "}
+                {new Date(selectedRepo.createdAt).toLocaleString(dateLocale)}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            {selectedRepo && (
+              <Button asChild variant="default">
+                <Link href={`/admin/repositories/${selectedRepo.id}`}>
+                  <ExternalLink className="mr-1.5 h-4 w-4" />
+                  {t("admin.repositories.manageRepo")}
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setSelectedRepo(null)}>
+              {t("admin.common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("admin.repositories.confirmDelete")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("admin.repositories.deleteWarning")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("admin.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {t("admin.common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 批量重新生成确认对话框 */}
+      <AlertDialog
+        open={showBatchRegenerateConfirm}
+        onOpenChange={(open) => {
+          if (!batchRegenerating) {
+            setShowBatchRegenerateConfirm(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("admin.repositories.confirmBatchRegenerate")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("admin.repositories.batchRegenerateWarning", {
+                count: selectedIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchRegenerating}>
+              {t("admin.common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBatchRegenerate();
+              }}
+              className="bg-amber-600 hover:bg-amber-700"
+              disabled={batchRegenerating}
+            >
+              {batchRegenerating ? (
                 <>
-                  <Form.Item
-                    name="gitUserName"
-                    label="Git用户名"
-                    rules={[{ required: true, message: '请输入Git用户名' }]}
-                  >
-                    <Input placeholder="Git用户名" />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="gitPassword"
-                    label="Git密码/令牌"
-                    rules={[{ required: true, message: '请输入Git密码或令牌' }]}
-                  >
-                    <Input.Password placeholder="Git密码或个人访问令牌" />
-                  </Form.Item>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("admin.repositories.batchRegenerating")}
                 </>
-              ) : null
-            }
-          </Form.Item>
-        </Form>
-      </Modal>
+              ) : (
+                t("admin.repositories.batchRegenerate")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      {/* 编辑仓库表单 */}
-      <Modal
-        title="编辑仓库"
-        open={isEditModalOpen}
-        onCancel={() => setIsEditModalOpen(false)}
-        onOk={handleEditFormSubmit}
-        okText="保存"
-        cancelText="取消"
-        width={600}
+      {/* 批量删除确认对话框 */}
+      <AlertDialog
+        open={showBatchDeleteConfirm}
+        onOpenChange={setShowBatchDeleteConfirm}
       >
-        <Form
-          form={editForm}
-          layout="vertical"
-        >
-          <Form.Item
-            name="description"
-            label="描述"
-          >
-            <Input.TextArea rows={4} placeholder="仓库描述" />
-          </Form.Item>
-
-          <Form.Item
-            name="isRecommended"
-            label="是否推荐"
-            valuePropName="checked"
-          >
-            <Select
-              options={[
-                { value: true, label: '推荐' },
-                { value: false, label: '不推荐' }
-              ]}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="prompt"
-            label="构建提示词"
-          >
-            <Input.TextArea rows={4} placeholder="构建提示词（可选）" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("admin.repositories.confirmBatchDelete")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("admin.repositories.batchDeleteWarning", {
+                count: selectedIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleting}>
+              {t("admin.common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={batchDeleting}
+            >
+              {batchDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("admin.repositories.deleting")}
+                </>
+              ) : (
+                t("admin.common.confirm")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
-} 
+}

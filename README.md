@@ -3,287 +3,279 @@
 [中文](README.zh-CN.md) | [English](README.md)
 
 <div align="center">
-  <img src="/img/favicon.png" alt="OpenDeepWiki Logo" width="200" />
-  <h3>AI-Driven Code Knowledge Base</h3>
+  <img src="/img/favicon.png" alt="OpenDeepWiki Logo" width="220" />
+  <h3>AI-driven repository knowledge base with docs, chat, and MCP</h3>
 </div>
 
-# Sponsor
+OpenDeepWiki turns Git repositories, ZIP archives, and local directories into searchable knowledge bases. It generates structured repository docs, serves them through a public Next.js site, and reuses the same indexed content for chat, embed, and MCP workflows.
 
-[![image](https://github.com/user-attachments/assets/b1bcb56e-38cb-47bf-adfe-7a21d83774b4)](https://share.302.ai/jXcaTv)
+Enterprise support and pricing: [docs.opendeep.wiki/pricing](https://docs.opendeep.wiki/pricing)
 
-[302.AI](https://share.302.ai/jXcaTv)is a pay-as-you-go, one-stop enterprise-level AI application platform. It offers an open platform and open-source ecosystem, allowing AI to find solutions for every need. Click [here](https://share.302.ai/jXcaTv) to get your $1 free credit!
+## What OpenDeepWiki Ships Today
 
-## Function
+- Import repository sources from Git URLs, uploaded ZIP archives, or approved local directories.
+- Generate README summaries, project overviews, wiki catalogs, document content, multi-language translations, mind maps, and optional Graphify artifacts.
+- Publish public repository docs on SEO-friendly routes such as `/{owner}/{repo}`, `/{owner}/{repo}/mindmap`, and `/{owner}/{repo}/graphify`.
+- Expose repository knowledge through repository-scoped MCP endpoints, the built-in chat assistant, embedded chat APIs, and share links.
+- Manage repositories, users, roles, departments, API keys, AI providers/models, skills, MCP providers, and GitHub App imports from the admin console.
+- Run background workers for repository processing, translation, mind map generation, Graphify artifacts, and scheduled incremental updates.
+- Support incoming chat/webhook channels for Feishu, QQ, WeChat, and Slack.
 
-- **Quick Conversion:** All Github, Gitlab, Gitee, Gitea and other code repositories can be converted into knowledge bases in just a few minutes.
-- **Multi-language Support:** Code analysis and documentation generation are supported for all programming languages.
-- **Code Structure:** Automatic Mermaid diagrams are generated to understand the code structure.
-- **Custom Models:** Custom models and custom APIs are supported, allowing for expansion as needed.
-- **AI Intelligent Analysis:** Code analysis and understanding of code relationships based on AI.
-- **Easy SEO:** Generate SEO-friendly documents and knowledge bases using Next.js, making it easier for search engines to index.
-- **Dialogic Interaction:** Supports dialogic interaction with AI to obtain detailed information and usage methods of the code, and to deeply understand the code.
+## Architecture At A Glance
 
-Feature list:
-- [x] Supports multiple code repositories (Github, Gitlab, Gitee, Gitea, etc.)
-- [x] Supports multiple programming languages (Python, Java, C#, JavaScript, etc.)
-- [x] Supports repository management, providing functions for adding, deleting, modifying, and querying repositories
-- [x] Supports multiple AI providers (OpenAI, AzureOpenAI, Anthropic, etc.)
-- [x] Supports multiple databases (SQLite, PostgreSQL, SqlServer, etc.)
-- [x] Supports multiple languages (Chinese, English, French, etc.)
-- [x] Supports uploading ZIP files, and uploading local files
-- [x] provides a data fine-tuning platform to generate fine-tuning datasets
-- [ ] Supports directory-level management of repositories, allowing for custom directory generation and dynamic documentation creation
-- [ ] Supports repository directory management, allowing for modification of repository directories
-- [ ] Supports user-level management, providing user management functions for adding, deleting, modifying, and querying users
-- [ ] Supports user permission management, providing user permission management functions for adding, deleting, modifying, and querying user permissions
-- [ ] Supports generating different fine-tuning framework datasets at the repository level
+| Layer | Current implementation |
+| --- | --- |
+| Backend | ASP.NET Core on .NET 10, MiniApis, background workers |
+| AI orchestration | `Microsoft.Agents.AI`, prompt assets under `src/OpenDeepWiki/prompts`, provider/model binding from settings |
+| Frontend | Next.js 16, React 19, App Router |
+| Database | SQLite or PostgreSQL |
+| Repo processing | `LibGit2Sharp`, ZIP/local-directory ingestion, incremental update pipeline |
+| Visualization | Mermaid mind maps plus optional `graphifyy` artifacts |
+| Deployment | Docker Compose, Makefile, optional Sealos deployment |
 
-# Project Introduction
+## Quick Start With Docker
 
-OpenDeepWiki is an open-source project inspired by [DeepWiki](https://deepwiki.com/), developed using .NET 9 and Semantic Kernel. It aims to help developers better understand and utilize codebases by providing features such as code analysis, documentation generation, and knowledge graph creation.
-- Analyze code structure
-- Understand core concepts of repositories
-- Generate code documentation
-- Automatically create README.md for code
-  MCP Support
+### Prerequisites
 
+- Docker with Compose support
+- At least one LLM API key compatible with your chosen provider
 
-OpenDeepWiki supports MCP (Model Context Protocol)
-- Supports providing an MCPServer for a single repository and conducting analysis on a single repository.
+### 1. Clone the repository
 
-Usage: The following is the usage of cursor: 
-```json
-{
-  "mcpServers": {
-    "OpenDeepWiki":{
-      "url": "http://Your OpenDeepWiki service IP:port/sse?owner=AIDotNet&name=OpenDeepWiki"
-    }
-  }
-}
-```
-- owner: It is the name of the organization or owner of the repository.
-- name: It is the name of the repository. 
-
-After adding the repository, test by asking a question (please note that before doing this, the repository must be processed first): What is OpenDeepWiki? The effect is as shown in the picture: ! [](img/mcp.png)
-
-
-In this way, you can use OpenDeepWiki as an MCPServer, making it available for other AI models to call upon, facilitating the analysis and understanding of an open-source project.
-
-## 🚀 Quick Start
-
-1. Clone the repository
 ```bash
 git clone https://github.com/AIDotNet/OpenDeepWiki.git
 cd OpenDeepWiki
 ```
 
-2. Open the `docker-compose.yml` file and modify the following environment variables:
+### 2. Edit `compose.yaml`
 
-OpenAI:
+At minimum, set a real JWT secret and your AI credentials:
+
 ```yaml
 services:
-  koalawiki:
+  opendeepwiki:
     environment:
-      - KOALAWIKI_REPOSITORIES=/repositories
-      - TASK_MAX_SIZE_PER_USER=5 # Maximum number of parallel document generation tasks per user by AI
-      - CHAT_MODEL=DeepSeek-V3 # Model must support functions
-      - ANALYSIS_MODEL= # Analysis model used for generating repository directory structure
-      - CHAT_API_KEY= # Your API key
-      - LANGUAGE= # Set the default language for generation as "Chinese"
-      - ENDPOINT=https://api.token-ai.cn/v1
-      - DB_TYPE=sqlite
-      - MODEL_PROVIDER=OpenAI # Model provider, default is OpenAI, supports AzureOpenAI and Anthropic
-      - DB_CONNECTION_STRING=Data Source=/data/KoalaWiki.db
-      - EnableSmartFilter=true # Whether intelligent filtering is enabled or not may affect how the AI can obtain the file directory of the repository
-      - UPDATE_INTERVAL # Warehouse increment update interval, unit: days
-      - MAX_FILE_LIMIT=100 # The maximum limit for uploading files, in MB
-      - DEEP_RESEARCH_MODEL= # Conduct in-depth research on the model and use CHAT_MODEL for the empty
-      - ENABLE_INCREMENTAL_UPDATE=true # Whether to enable incremental updates 
+      - JWT_SECRET_KEY=replace-this-in-production
+
+      - CHAT_API_KEY=your-chat-api-key
+      - ENDPOINT=https://api.openai.com/v1
+      - CHAT_REQUEST_TYPE=OpenAI
+
+      - WIKI_CATALOG_MODEL=gpt-4o
+      - WIKI_CATALOG_ENDPOINT=https://api.openai.com/v1
+      - WIKI_CATALOG_API_KEY=your-catalog-api-key
+      - WIKI_CATALOG_REQUEST_TYPE=OpenAI
+
+      - WIKI_CONTENT_MODEL=gpt-4o
+      - WIKI_CONTENT_ENDPOINT=https://api.openai.com/v1
+      - WIKI_CONTENT_API_KEY=your-content-api-key
+      - WIKI_CONTENT_REQUEST_TYPE=OpenAI
+
+      - WIKI_LANGUAGES=en,zh,zh-tw,ja,ko,es,fr,de,pt-br,pl,ru,ar
+      - WIKI_PARALLEL_COUNT=5
 ```
 
-AzureOpenAI:
-```yaml
-services:
-  koalawiki:
-    environment:
-      - KOALAWIKI_REPOSITORIES=/repositories
-      - TASK_MAX_SIZE_PER_USER=5 # Maximum number of parallel document generation tasks per user by AI
-      - CHAT_MODEL=DeepSeek-V3 # Model must support functions
-      - ANALYSIS_MODEL= # Analysis model used for generating repository directory structure
-      - CHAT_API_KEY= # Your API key
-      - LANGUAGE= # Set the default language for generation as "Chinese"
-      - ENDPOINT=https://your-azure-address.openai.azure.com/
-      - DB_TYPE=sqlite
-      - MODEL_PROVIDER=AzureOpenAI # Model provider, default is OpenAI, supports AzureOpenAI and Anthropic
-      - DB_CONNECTION_STRING=Data Source=/data/KoalaWiki.db
-      - EnableSmartFilter=true # Whether intelligent filtering is enabled or not may affect how the AI can obtain the file directory of the repository
-      - UPDATE_INTERVAL # Warehouse increment update interval, unit: days
-      - MAX_FILE_LIMIT=100 # The maximum limit for uploading files, in MB
-      - DEEP_RESEARCH_MODEL= # Conduct in-depth research on the model and use CHAT_MODEL for the empty
-      - ENABLE_INCREMENTAL_UPDATE=true # Whether to enable incremental updates
-```
+Notes:
 
-Anthropic:
-```yaml
-services:
-  koalawiki:
-    environment:
-      - KOALAWIKI_REPOSITORIES=/repositories
-      - TASK_MAX_SIZE_PER_USER=5 # Maximum number of parallel document generation tasks per user by AI
-      - CHAT_MODEL=DeepSeek-V3 # Model must support functions
-      - ANALYSIS_MODEL= # Analysis model used for generating repository directory structure
-      - CHAT_API_KEY= # Your API key
-      - LANGUAGE= # Set the default language for generation as "Chinese"
-      - ENDPOINT=https://api.anthropic.com/
-      - DB_TYPE=sqlite
-      - MODEL_PROVIDER=Anthropic # Model provider, default is OpenAI, supports AzureOpenAI and Anthropic
-      - DB_CONNECTION_STRING=Data Source=/data/KoalaWiki.db
-      - EnableSmartFilter=true # Whether intelligent filtering is enabled or not may affect how the AI can obtain the file directory of the repository
-      - UPDATE_INTERVAL # Warehouse increment update interval, unit: days
-      - MAX_FILE_LIMIT=100 # The maximum limit for uploading files, in MB
-      - DEEP_RESEARCH_MODEL= # Conduct in-depth research on the model and use CHAT_MODEL for the empty
-      - ENABLE_INCREMENTAL_UPDATE=true # Whether to enable incremental updates
-```
+- `CHAT_*`, `WIKI_CATALOG_*`, and `WIKI_CONTENT_*` can point to the same provider.
+- Translation is optional. If `WIKI_TRANSLATION_*` is not set, translation falls back to the content-generation provider/model.
+- `compose.yaml` uses `Database__Type=sqlite` and `ConnectionStrings__Default=Data Source=/data/opendeepwiki.db` by default.
 
-> 💡 **How to get an API Key:**
-> - Get Google API key [Google AI Studio](https://makersuite.google.com/app/apikey)
-> - Get OpenAI API key [OpenAI Platform](https://platform.openai.com/api-keys)
-> - Get CoresHub [CoresHub](https://console.coreshub.cn/xb3/maas/global-keys) [Click here for 50 million free tokens](https://account.coreshub.cn/signup?invite=ZmpMQlZxYVU=)
-> - Get TokenAI [TokenAI](https://api.token-ai.cn/)
-
-3. Start the service
-
-You can use the provided Makefile commands to easily manage the application:
+### 3. Start the stack
 
 ```bash
-# Build all Docker images
+docker compose up -d --build
+```
+
+Or use the Makefile shortcuts:
+
+```bash
 make build
-
-# Start all services in background mode
 make up
+```
 
-# Or start in development mode (with logs visible)
+### 4. Open the app
+
+- Web UI: [http://localhost:3000](http://localhost:3000)
+- Backend health: [http://localhost:8080/health](http://localhost:8080/health)
+
+On a fresh database, the seeded admin account is:
+
+- Email: `admin@routin.ai`
+- Password: `Admin@123`
+
+Change the default JWT secret and admin password before any real deployment.
+
+## PostgreSQL Instead Of SQLite
+
+The current runtime code supports `sqlite` and `postgresql`.
+
+To boot the bundled PostgreSQL stack:
+
+```bash
+docker compose -f compose.pgsql.yaml up -d --build
+```
+
+If you prefer your own database, configure either of these equivalent pairs:
+
+```yaml
+- Database__Type=postgresql
+- ConnectionStrings__Default=Host=your-host;Port=5432;Database=opendeepwiki;Username=postgres;Password=secret
+```
+
+or
+
+```yaml
+- DB_TYPE=postgresql
+- CONNECTION_STRING=Host=your-host;Port=5432;Database=opendeepwiki;Username=postgres;Password=secret
+```
+
+## Local Development
+
+### Backend
+
+```bash
+dotnet restore OpenDeepWiki.sln
+dotnet build OpenDeepWiki.sln
+dotnet run --project src/OpenDeepWiki/OpenDeepWiki.csproj
+```
+
+Useful local endpoints:
+
+- Backend API: [http://localhost:5265](http://localhost:5265) with the default `http` launch profile, or the URL printed by ASP.NET Core
+- Health: [http://localhost:5265/health](http://localhost:5265/health)
+- OpenAPI/Scalar: [http://localhost:5265/v1/scalar](http://localhost:5265/v1/scalar) when running in `Development`
+
+### Web app
+
+Set the backend proxy first. The web app reads `API_PROXY_URL` from the environment, `web/.env.local`, or `web/.env`.
+
+```bash
+cd web
+npm install
+echo API_PROXY_URL=http://localhost:5265 > .env.local
+npm run dev
+```
+
+### Docs app (optional)
+
+```bash
+cd docs
+npm install
+npm run dev
+```
+
+### Tests and lint
+
+```bash
+dotnet test tests/OpenDeepWiki.Tests/OpenDeepWiki.Tests.csproj
+cd web && npm test
+cd web && npm run lint
+```
+
+Common Makefile shortcuts:
+
+```bash
 make dev
+make down
+make logs
+make test
+make build-arm
+make build-amd
 ```
 
-Then visit http://localhost:8090 to access the knowledge base.
-
-For more commands:
-```bash
-make help
-```
-
-### For Windows Users (without make)
-
-If you're using Windows and don't have `make` available, you can use these Docker Compose commands directly:
-
-```bash
-# Build all Docker images
-docker-compose build
-
-# Start all services in background mode
-docker-compose up -d
-
-# Start in development mode (with logs visible)
-docker-compose up
-
-# Stop all services
-docker-compose down
-
-# View logs
-docker-compose logs -f
-```
-
-For building specific architectures or services, use:
-
-```bash
-# Build only backend
-docker-compose build koalawiki
-
-# Build only frontend
-docker-compose build koalawiki-web
-
-# Build with architecture parameters
-docker-compose build --build-arg ARCH=arm64
-docker-compose build --build-arg ARCH=amd64
-```
-
-
-### Deploy to Sealos with Public Internet Access
-[![](https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://bja.sealos.run/?openapp=system-template%3FtemplateName%3DOpenDeepWiki)
-For detailed steps, refer to:[One-Click Deployment of OpenDeepWiki as a Sealos Application Exposed to the Public Network Using Templates](scripts/sealos/README.zh-CN.md)
-
-## 🔍 How It Works
-
-OpenDeepWiki uses AI to:
- - Clone code repository locally
- - Analyze based on repository README.md
- - Analyze code structure and read code files as needed, then generate directory json data
- - Process tasks according to directory, each task is a document
- - Read code files, analyze code files, generate code documentation, and create Mermaid charts representing code structure dependencies
- - Generate the final knowledge base document
- - Analyze repository through conversational interaction and respond to user inquiries
+## Repository Processing Flow
 
 ```mermaid
-graph TD
-    A[Clone code repository] --> B[Analyze README.md]
-    B --> C[Analyze code structure]
-    C --> D[Generate directory json data]
-    D --> E[Process multiple tasks]
-    E --> F[Read code files]
-    F --> G[Analyze code files]
-    G --> H[Generate code documentation]
-    H --> I[Create Mermaid charts]
-    I --> J[Generate knowledge base document]
-    J --> K[Conversational interaction]
-```
-## Advanced Configuration
-
-### Environment Variables
-  - KOALAWIKI_REPOSITORIES  Path for storing repositories
-  - TASK_MAX_SIZE_PER_USER  Maximum parallel tasks for AI document generation per user
-  - CHAT_MODEL  Model must support functions
-  - ENDPOINT  API Endpoint
-  - ANALYSIS_MODEL  Analysis model for generating repository directory structure
-  - CHAT_API_KEY  Your API key
-  - LANGUAGE  Change the language of the generated documents
-  - DB_TYPE  Database type, default is sqlite
-  - MODEL_PROVIDER  Model provider, by default OpenAI, supports Azure, OpenAI and Anthropic
-  - DB_CONNECTION_STRING  Database connection string
-  - EnableSmartFilter Whether intelligent filtering is enabled or not may affect how the AI can obtain the file directory of the repository
-  - UPDATE_INTERVAL Warehouse increment update interval, unit: days
-  - MAX_FILE_LIMIT The maximum limit for uploading files, in MB
-  - DEEP_RESEARCH_MODEL Conduct in-depth research on the model and use CHAT_MODEL for the empty
-  - ENABLE_INCREMENTAL_UPDATE Whether to enable incremental updates
-
-### Build for Different Architectures
-The Makefile provides commands to build for different CPU architectures:
-
-```bash
-# Build for ARM architecture
-make build-arm
-
-# Build for AMD architecture
-make build-amd
-
-# Build only backend for ARM
-make build-backend-arm
-
-# Build only frontend for AMD
-make build-frontend-amd
+graph LR
+    A["Git / ZIP / Local directory"] --> B["Prepare workspace"]
+    B --> C["Analyze tree and existing repo context"]
+    C --> D["Generate README, overview, and wiki catalog"]
+    D --> E["Generate document content"]
+    E --> F["Translation / mind map / Graphify / incremental workers"]
+    F --> G["Public docs, chat, embed, and MCP"]
 ```
 
-## Discord
+In practice, the main runtime path looks like this:
 
-[join us](https://discord.gg/8sxUNacv)
+1. Normalize the repository source and prepare a workspace under `REPOSITORIES_DIRECTORY`.
+2. Build or refresh repository metadata, branch/language state, and processing logs.
+3. Generate documentation catalogs and document content with the configured AI provider/model bindings.
+4. Queue follow-up work such as translation, mind map generation, Graphify artifacts, and incremental updates.
+5. Serve the final repository knowledge through the public web app, admin tooling, chat APIs, and MCP endpoints.
 
-## WeChat 
+## MCP Usage
 
-![a4efdc9044eeaefddc257ba5624da5e5](https://github.com/user-attachments/assets/b12878b9-8db1-4e3c-8874-1e21885af7ee)
+OpenDeepWiki registers official MCP endpoints at:
 
-## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+- `/api/mcp`
+- `/api/mcp/{owner}/{repo}`
+
+You can scope the repository either by path or query string. Example:
+
+```json
+{
+  "mcpServers": {
+    "OpenDeepWiki": {
+      "url": "http://localhost:8080/api/mcp/AIDotNet/OpenDeepWiki"
+    }
+  }
+}
+```
+
+Query-based alternative:
+
+```text
+http://localhost:8080/api/mcp?owner=AIDotNet&name=OpenDeepWiki
+```
+
+Optional:
+
+- Set `MCP_ENABLED=false` to disable MCP endpoints.
+- Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` if you want protected-resource MCP OAuth support.
+
+## Optional Graphify Configuration
+
+The backend Docker image already installs `graphifyy`. To enable Graphify artifact generation, configure one of the optional provider groups already present in `compose.yaml`, such as:
+
+- `GRAPHIFY_BACKEND`
+- `GRAPHIFY_MODEL`
+- `GRAPHIFY_OPENAI_BASE_URL`
+- `GRAPHIFY_OPENAI_API_KEY`
+- `OPENAI_BASE_URL` / `OPENAI_API_KEY`
+- `OLLAMA_BASE_URL` / `OLLAMA_MODEL`
+
+## Repository Layout
+
+- `src/OpenDeepWiki/`: ASP.NET Core entry point, endpoints, workers, AI/repository/chat/MCP services
+- `src/OpenDeepWiki.Entities/`: domain entities
+- `src/OpenDeepWiki.EFCore/`: shared EF Core model and context contract
+- `src/EFCore/OpenDeepWiki.Sqlite/`: SQLite provider
+- `src/EFCore/OpenDeepWiki.Postgresql/`: PostgreSQL provider
+- `web/`: public docs site and admin UI built with Next.js
+- `docs/`: separate documentation app
+- `tests/OpenDeepWiki.Tests/`: xUnit and FsCheck tests
+- `scripts/`: deployment and helper scripts
+
+## Deployment Notes
+
+- Sealos: [One-click deployment guide](scripts/sealos/README.zh-CN.md)
+- Backend container definition: `src/OpenDeepWiki/Dockerfile`
+- Frontend container definition: `web/Dockerfile`
+
+## Community
+
+- Discord: [join us](https://discord.gg/Y3fvpnGVwt)
+- Feishu QR code:
+
+![Feishu](/img/feishu.png)
+
+![WeChat](https://github.com/user-attachments/assets/cb346569-2635-4038-a5cd-1c14485da7b2)
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=AIDotNet/OpenDeepWiki&type=Date)](https://www.star-history.com/#AIDotNet/OpenDeepWiki&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=AIDotNet/OpenDeepWiki&type=Date)](https://star-history.dera.page/#AIDotNet/OpenDeepWiki&type=date)

@@ -1,0 +1,17 @@
+{
+  "explore": "Explorer",
+  "recommend": "Recommander",
+  "private": "Dépôts privés",
+  "subscribe": "S'abonner",
+  "bookmarks": "Favoris",
+  "organizations": "Organisations",
+  "apps": "Mes applications",
+  "mcp": "Services MCP",
+  "github": "GitHub",
+  "feishu": "Feishu",
+  "scanQrCode": "Scanne pour suivre Feishu",
+  "groupDiscover": "Découvrir",
+  "groupWorkspace": "Espace de travail",
+  "groupTools": "Outils",
+  "brandTagline": "Base de connaissances"
+}

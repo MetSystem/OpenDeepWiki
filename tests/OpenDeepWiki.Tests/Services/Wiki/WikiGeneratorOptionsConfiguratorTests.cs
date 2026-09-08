@@ -1,0 +1,121 @@
+using Microsoft.Extensions.Configuration;
+using OpenDeepWiki.Services.Wiki;
+using Xunit;
+
+namespace OpenDeepWiki.Tests.Services.Wiki;
+
+public class WikiGeneratorOptionsConfiguratorTests
+{
+    [Fact]
+    public void Apply_ShouldBindWikiTasks_FromProviderModelSettings()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["WikiGenerator:CatalogProviderId"] = "catalog-provider",
+            ["WikiGenerator:CatalogModel"] = "catalog-model",
+            ["WikiGenerator:ContentProviderId"] = "content-provider",
+            ["WikiGenerator:ContentModel"] = "content-model",
+            ["WikiGenerator:TranslationProviderId"] = "translation-provider",
+            ["WikiGenerator:TranslationModel"] = "translation-model"
+        });
+
+        var options = new WikiGeneratorOptions();
+
+        WikiGeneratorOptionsConfigurator.Apply(options, configuration);
+
+        Assert.Equal("catalog-provider", options.CatalogProviderId);
+        Assert.Equal("catalog-model", options.CatalogModel);
+        Assert.Equal("content-provider", options.ContentProviderId);
+        Assert.Equal("content-model", options.ContentModel);
+        Assert.Equal("translation-provider", options.TranslationProviderId);
+        Assert.Equal("translation-model", options.TranslationModel);
+    }
+
+    [Fact]
+    public void Apply_ShouldIgnoreLegacyAiEndpointAndKeyFallbacks()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["AI:Endpoint"] = "https://global.example/v1",
+            ["AI:ApiKey"] = "global-key",
+            ["CHAT_REQUEST_TYPE"] = "OpenAI",
+            ["WIKI_CONTENT_API_KEY"] = "content-key",
+            ["WIKI_TRANSLATION_ENDPOINT"] = "https://translation.example/v1",
+            ["WIKI_TRANSLATION_API_KEY"] = "translation-key",
+            ["WIKI_TRANSLATION_REQUEST_TYPE"] = "Anthropic"
+        });
+
+        var options = new WikiGeneratorOptions();
+
+        WikiGeneratorOptionsConfigurator.Apply(options, configuration);
+
+        Assert.Null(options.CatalogProviderId);
+        Assert.Equal("gpt-5-mini", options.CatalogModel);
+        Assert.Null(options.ContentProviderId);
+        Assert.Equal("gpt-5.2", options.ContentModel);
+        Assert.Null(options.TranslationProviderId);
+        Assert.Null(options.TranslationModel);
+    }
+
+    [Fact]
+    public void Apply_ShouldBindLanguages_FromWikiLanguagesEnvironmentVariable()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["WIKI_LANGUAGES"] = "en,zh,ja,ko,es,fr"
+        });
+
+        var options = new WikiGeneratorOptions();
+
+        WikiGeneratorOptionsConfigurator.Apply(options, configuration);
+
+        Assert.Equal("en,zh,ja,ko,es,fr", options.Languages);
+    }
+
+    [Fact]
+    public void Apply_ShouldPreferWikiLanguagesEnv_OverSectionValue()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["WIKI_LANGUAGES"] = "en,zh,pt-br",
+            ["WikiGenerator:Languages"] = "en,zh"
+        });
+
+        var options = new WikiGeneratorOptions();
+
+        WikiGeneratorOptionsConfigurator.Apply(options, configuration);
+
+        Assert.Equal("en,zh,pt-br", options.Languages);
+    }
+
+    [Fact]
+    public void Apply_ShouldBindMaxConcurrentGenerations_FromEnvironmentVariable()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["WIKI_MAX_CONCURRENT_GENERATIONS"] = "3"
+        });
+
+        var options = new WikiGeneratorOptions();
+
+        WikiGeneratorOptionsConfigurator.Apply(options, configuration);
+
+        Assert.Equal(3, options.MaxConcurrentGenerations);
+        Assert.Equal(3, options.GetMaxConcurrentGenerations());
+    }
+
+    [Fact]
+    public void GetMaxConcurrentGenerations_ShouldClampToAtLeastOne()
+    {
+        var options = new WikiGeneratorOptions { MaxConcurrentGenerations = 0 };
+
+        Assert.Equal(1, options.GetMaxConcurrentGenerations());
+    }
+
+    private static IConfiguration BuildConfiguration(IEnumerable<KeyValuePair<string, string?>> settings)
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(settings)
+            .Build();
+    }
+}

@@ -482,7 +482,27 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-/web/.next
+*/.next
 /src/KoalaWiki/repositories
 /src/KoalaWiki/KoalaWiki.db
+/src/KoalaWiki/KoalaWiki.db-*
 /output
+/neo4j_data
+/postgres_db
+/history
+/repositories/aidotnet/Thor
+*lock.json
+seo-web
+/src/KoalaWiki/wwwroot
+
+*.db
+src/OpenDeepWiki/opendeepwiki.db-shm
+src/OpenDeepWiki/opendeepwiki.db-wal
+src/OpenDeepWiki/opendeepwiki.db
+src/OpenDeepWiki/Properties/launchSettings.json
+
+# Local Docker Compose data volume (sqlite db, cloned repos, secrets)
+/data/
+
+# Local MCP client configuration (machine-specific endpoints)
+.mcp.json
